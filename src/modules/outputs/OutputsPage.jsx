@@ -4,10 +4,10 @@ export default function OutputsPage() {
   return (
     <ModulePlaceholder
       title="Exports & crosstab"
-      summary="Download the finalised allocations and print the schedule for a class."
+      summary="Generated schedules are stored in Raihan_Allocations. Printable views and downloads are not built yet."
       upcoming={[
-        'JHS CSV export: Date, Period, Class, Subject, Teacher Name, Teacher ID',
-        'Printable, colour-coded Day x Period crosstab for a selected class',
+        'JHS-compliant export and printable, colour-coded Day x Period crosstab',
+        'Class/teacher filters, full-screen view, and PDF export',
       ]}
     />
   );

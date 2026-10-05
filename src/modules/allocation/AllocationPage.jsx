@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowRight,
@@ -41,7 +42,7 @@ function noticeFor(audience, week, teachers) {
     'ASATEZA OPERATIONAL NOTICE',
     `Week ${week.weekNo} (${period})`,
     `Classes attending Raihan: ${classes}.`,
-    'Suggested Raihan days:',
+    'Assigned Raihan days:',
     travelDays,
     'Please review the advisory and coordinate any home-campus timetable adjustments.',
   ].join('\n');
@@ -242,8 +243,9 @@ export default function AllocationPage() {
           Raihan relocation
         </h1>
         <p className="mt-3 max-w-3xl text-ink-soft">
-          Set the week, relocation dates, and affected classes. The week number is the shared ID
-          for its advisory and operational log.
+          Set the week, relocation dates, and affected classes. Schedule generation sanitizes
+          duplicate sessions, consolidates selected classes onto each teacher’s Raihan weekday,
+          and writes the result to the allocation sheets.
         </p>
       </header>
 
@@ -375,7 +377,7 @@ export default function AllocationPage() {
             className="inline-flex items-center gap-2 rounded-md border border-lapis-600 px-4 py-2 text-sm font-medium text-lapis-700 hover:bg-lapis-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : null}
-            {analyzing ? 'Analyzing…' : 'Analyze schedule'}
+            {analyzing ? 'Cleaning & building…' : 'Clean data & build schedule'}
           </button>
         </div>
       </section>
@@ -412,20 +414,22 @@ export default function AllocationPage() {
         <section aria-labelledby="advisory-title" className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
           <div className="mb-5">
             <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Week {advisory.weekNo}</p>
-            <h2 id="advisory-title" className="mt-1 text-xl font-semibold text-ink">Rescheduling advisory</h2>
+            <h2 id="advisory-title" className="mt-1 text-xl font-semibold text-ink">Generated schedule and lag report</h2>
             <p className="mt-2 text-sm text-ink-soft">
-              Based on {advisory.sourceRows} unique JHS schedule rows
+              Sanitized {advisory.sourceRows} unique JHS schedule rows
               {advisory.duplicateRowsSkipped > 0
-                ? ` (${advisory.duplicateRowsSkipped} duplicate rows ignored).`
+                ? ` (${advisory.duplicateRowsSkipped} repeated sessions removed).`
                 : '.'}
-              {' '}Review the suggestions before changing the source sheet.
+              {' '}{advisory.allocatedRows} rows were written to Raihan_Allocations. Per-week
+              calculations and lag diagnostics are in Raihan_Solver_Working. Schedule changes
+              affect {advisory.alteredDayCount} date(s).
             </p>
             {advisory.skippedRows &&
               Object.values(advisory.skippedRows).reduce((sum, count) => sum + count, 0) > 0 && (
                 <p role="status" className="mt-3 rounded-md bg-saffron-100 p-3 text-sm text-saffron-700">
-                  Some rows in the selected dates were skipped because date, weekday, class, period,
-                  or teacher information is missing or invalid. Check JHS_Raw_Data before relying on
-                  this advisory.
+                  Some rows in the selected dates were skipped because date, weekday, class,
+                  subject, period, or teacher information is missing or invalid. Check
+                  JHS_Raw_Data before relying on this schedule.
                 </p>
               )}
           </div>
@@ -447,32 +451,15 @@ export default function AllocationPage() {
                       </p>
                     </div>
                     <p className="rounded-full bg-raihan-100 px-3 py-1 text-sm font-medium text-raihan-700">
-                      Suggested Raihan day: {teacher.raihanDay}
+                      Raihan day: {teacher.raihanDay}
                     </p>
                   </div>
                   <p className="mt-3 text-sm text-ink-soft">
-                    {teacher.raihanSessions} Raihan sessions in the window · {teacher.homeCommitmentsOnRaihanDay} home-campus periods to move
-                    {teacher.raihanSessionOverflow > 0
-                      ? ` · ${teacher.raihanSessionOverflow} Raihan sessions exceed the 8-period single-day capacity`
-                      : ''}
+                    {teacher.raihanSessions} selected-class sessions · {teacher.homeCommitmentsOnRaihanDay} home-campus sessions shifted off this day
                   </p>
-                  {teacher.suggestedMoves.length > 0 ? (
-                    <p className="mt-2 text-sm text-ink">
-                      Suggested moves:{' '}
-                      {teacher.suggestedMoves
-                        .map(({ from, to }) =>
-                          `${from.day} ${from.period} · ${from.className} ${from.subject} → ${to.day} ${to.period}`,
-                        )
-                        .join('; ')}
-                    </p>
-                  ) : teacher.homeCommitmentsOnRaihanDay > 0 ? (
-                    <p className="mt-2 text-sm text-saffron-700">No open slots were found on the other weekdays.</p>
-                  ) : (
-                    <p className="mt-2 text-sm text-ink-soft">No home-campus periods need moving on this Raihan day.</p>
-                  )}
                   {teacher.unplacedHomeCommitments > 0 && (
                     <p className="mt-1 text-sm font-medium text-saffron-700">
-                      {teacher.unplacedHomeCommitments} home-campus period(s) remain without a suggested slot.
+                      {teacher.unplacedHomeCommitments} home-campus session(s) could not be moved and are listed as lags.
                     </p>
                   )}
                 </article>
@@ -480,10 +467,42 @@ export default function AllocationPage() {
             </div>
           )}
 
+          {advisory.lags?.length > 0 && (
+            <section aria-labelledby="lag-report" className="mt-6 rounded-lg border border-saffron-500/30 bg-saffron-100 p-4">
+              <h3 id="lag-report" className="font-semibold text-saffron-700">
+                {advisory.lagCount} session(s) need additional coverage
+              </h3>
+              <p className="mt-1 text-sm text-saffron-700">
+                Add temporary teachers with matching subjects and available periods; saved profiles
+                can be reused for future weeks.
+              </p>
+              {Object.keys(advisory.lagBySubject || {}).length > 0 && (
+                <ul className="mt-3 list-disc ps-5 text-sm text-saffron-700">
+                  {Object.entries(advisory.lagBySubject).map(([subject, count]) => (
+                    <li key={subject}>{subject}: {count} uncovered period(s)</li>
+                  ))}
+                </ul>
+              )}
+              <ul className="mt-3 space-y-1 text-sm text-ink">
+                {advisory.lags.map((lag, index) => (
+                  <li key={`${lag.className}-${lag.subject}-${lag.date}-${index}`}>
+                    {lag.className} · {lag.subject} · {lag.date} {lag.period} · {lag.diagnostic}
+                  </li>
+                ))}
+              </ul>
+              <Link
+                to={`/temp-teachers?week=${advisory.weekNo}`}
+                className="mt-4 inline-flex rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500"
+              >
+                Add temporary teachers and resolve lags
+              </Link>
+            </section>
+          )}
+
           <div className="mt-6 flex flex-wrap gap-3 border-t border-ink/10 pt-5">
             <p className="w-full text-sm text-ink-soft">
-              If you adjusted home-campus records, update them in JHS_Raw_Data first, then refresh
-              this advisory. You can also proceed without uploading or refreshing.
+              If the source timetable changed, update JHS_Raw_Data and rebuild. The generated
+              schedule replaces only this week’s rows; allocations for other weeks are preserved.
             </p>
             <button
               type="button"
@@ -492,7 +511,7 @@ export default function AllocationPage() {
               className="inline-flex items-center gap-2 rounded-md border border-ink/20 px-4 py-2 text-sm font-medium text-ink hover:bg-paper disabled:opacity-50"
             >
               {recording ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-              I updated JHS_Raw_Data — refresh advisory
+              I updated JHS_Raw_Data — rebuild schedule
             </button>
             <button
               type="button"
@@ -504,8 +523,8 @@ export default function AllocationPage() {
             </button>
           </div>
           <p className="mt-3 text-xs text-ink-faint">
-            Proceed is non-blocking: it records the decision for Week {weekNo} and does not require
-            a CSV upload or another sheet upload.
+            Proceed is non-blocking: it records the decision for Week {weekNo}; it does not
+            require another upload.
           </p>
         </section>
       )}
@@ -517,14 +536,14 @@ export default function AllocationPage() {
           </p>
           <h2 className="mt-2 text-xl font-semibold text-ink">Ready for the next phase</h2>
           <p className="mt-2 text-sm text-ink-soft">
-            Your proceed decision is logged. Data sanitization and Musanid tagging are the next
-            planned features; schedule generation has not run yet.
+            Your proceed decision is logged. The generated timetable and any outstanding lags are
+            saved for Week {weekNo}.
           </p>
         </section>
       )}
 
       <section aria-label="Future phases" className="text-sm text-ink-faint">
-        <p>Planned next: data sanitization and Musanid tagging, deterministic allocation and lag resolution, then timetable outputs and distribution.</p>
+        <p>Still planned: print-ready crosstab, PDF export, and personalized teacher distribution.</p>
         <p className="mt-1">Future academic operations: syllabus tracking, weekly feedback, and event overrides.</p>
       </section>
     </section>

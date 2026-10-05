@@ -4,8 +4,8 @@ export default function CompensationPage() {
   return (
     <ModulePlaceholder
       title="Compensation advisory"
-      summary="Teachers whose main-campus periods were displaced by their Raihan visit, with suggested make-up slots."
-      upcoming={['Suggest alternative free days and slots for lost local classes']}
+      summary="The schedule builder moves displaced home-campus sessions into free slots and records any remaining lags."
+      upcoming={['Standalone teacher-by-teacher make-up view and manual adjustment controls']}
     />
   );
 }

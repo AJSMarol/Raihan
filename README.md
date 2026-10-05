@@ -3,8 +3,8 @@
 React (Vite) + Tailwind front end, Google Sheets + Apps Script back end, Google Sign-In.
 
 Google sign-in and role-based access are implemented. Phase 1 provides week-scoped relocation
-setup, a JHS schedule advisory, and operational notices. Schedule generation and later phases
-remain planned work and are not represented as complete.
+setup, source sanitization, a deterministic timetable allocation attempt, lag reporting, and
+operational notices. Print-ready outputs and later academic-operation features remain planned.
 
 ## 1. Google Cloud: OAuth client
 
@@ -57,38 +57,40 @@ To run locally, use `npm install` and `npm run dev` (`http://localhost:5173`).
 The app uses `HashRouter` (URLs look like `/#/allocation`) because GitHub Pages can't rewrite
 unknown paths to `index.html`.
 
-## Phase 1: Relocation setup and advisory
+## Phase 1: Relocation setup and schedule generation
 
 - Choose a week number (1-41), start/end dates, and the affected classes. The week number is the
   key for saved relocation configuration and `Raihan_Week_Logs`.
 - Unique class names come from `JHS_Raw_Data`. Configuration is saved in `Raihan_Weeks`;
   `Raihan_Week_Logs` records setup, analysis, refresh, and proceed actions.
-- The advisory deduplicates identical date/period/class/subject/teacher rows, chooses each
-  affected teacher's weekday with the fewest home-campus sessions, then maps home sessions from
-  that day to free P1-P8 slots on other weekdays. It flags sessions that cannot be placed and
-  Raihan assignments exceeding one day's eight-period capacity.
+- **Clean data & build schedule** copies all valid source sessions in the date range into a
+  week-scoped working calculation, collapses repeated class/subject/date/period sessions, and
+  detects assistants whose IDs begin `78652` as Musanid records. Those assistants are preserved
+  in the teacher field but do not consume a primary-teacher slot.
+- The solver chooses each affected primary teacher's least-committed weekday, moves that
+  teacher's non-relocating sessions from the day to other open class/teacher slots, then
+  consolidates selected-class sessions onto that one Raihan weekday. Subject groups with fewer
+  sessions are attempted first; Raihan placement prefers P2/P4/P6 before other periods.
+- Generated rows are written to `Raihan_Allocations`, which adds `Week_No` before the JHS
+  columns. A build replaces only the selected week's rows and preserves other weeks.
+  If that tab already has the exact JHS columns without `Week_No`, generation prepends the
+  identifier column and preserves its existing rows.
+  `Raihan_Solver_Working` stores the intermediate source, assigned status, and diagnostics.
+  Unplaceable sessions are listed as lags, with a **Temporary teachers** workflow for saved
+  subject/availability profiles in `Raihan_Temp_Teachers` and collision-checked assignments.
 - Student and Asateza notices can be copied or opened as prefilled WhatsApp messages.
-- After manually updating `JHS_Raw_Data`, refresh the advisory. Alternatively, **Changes Done —
-  Proceed** records the decision without requiring another upload.
+- After manually updating `JHS_Raw_Data`, rebuild the schedule. Alternatively,
+  **Changes Done — Proceed** records the decision without requiring another upload.
 
 After changing `apps-script/Code.gs`, deploy a new web app version before using corresponding
 app changes.
 
-## Later phases (planned, not yet implemented)
+## Later phases and remaining work
 
-### Phase 2: Sanitization, solver, and schedule distribution
+### Phase 2: Outputs and distribution (planned)
 
-- Sanitize split/duplicate sessions and tag the secondary teacher whose ID begins `78652` as
-  `MUSANID`; bypass constraint checks for Musanid records while preserving them next to the primary
-  teacher in final timetable views.
-- Keep all Raihan periods for each teacher on one designated weekday. Prefer alternating P2/P4/P6;
-  if unavailable, use any remaining free period that day. Flag unsatisfied sessions with diagnostics
-  such as period collision, no single-day availability, and teacher overbooked.
-- Add temporary teachers with a draggable Days x P1-P8 availability grid and assign lagged sessions
-  only to valid, collision-free slots.
-- Export the exact `JHS_Raw_Data` column schema into `Raihan_Allocations`. Store printable
-  allocations in `Allocations_Raihan`, with a Days x P1-P8 crosstab, class/teacher filters,
-  full-screen view, and PDF export.
+- Add a print-ready `Allocations_Raihan` crosstab, class/teacher filters, full-screen view, and
+  PDF export. Add more solver diagnostics and test allocations against full-year timetable data.
 - Add teacher-specific WhatsApp messages with day, periods, class, and room; support `wa.me`
   dispatch and batched copy-ready broadcasts.
 
@@ -121,7 +123,8 @@ Subject color palette for the crosstab:
 - Add a special-event/override manager for seminars, assemblies, Duas, guest lectures, schedule
   freezes, and period suppressions without overwriting the underlying master timetable.
 
-Each later phase needs dedicated Apps Script endpoints and sheet schemas before it is enabled.
+The implemented solver uses dedicated week-scoped output and working sheets. Each remaining
+feature needs its own sheet/API contract before it is enabled.
 
 ## 5. Arabic font
 
