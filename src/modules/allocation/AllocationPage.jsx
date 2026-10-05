@@ -416,7 +416,9 @@ export default function AllocationPage() {
             <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Week {advisory.weekNo}</p>
             <h2 id="advisory-title" className="mt-1 text-xl font-semibold text-ink">Generated schedule and lag report</h2>
             <p className="mt-2 text-sm text-ink-soft">
-              Sanitized {advisory.sourceRows} unique JHS schedule rows
+              Source rows with valid dates: {advisory.validDateRows ?? '—'}; rows in the selected
+              window ({advisory.startDate} to {advisory.endDate}): {advisory.rowsInDateRange ?? '—'}.
+              {' '}Sanitized {advisory.sourceRows} unique schedule sessions
               {advisory.duplicateRowsSkipped > 0
                 ? ` (${advisory.duplicateRowsSkipped} repeated sessions removed).`
                 : '.'}
@@ -427,17 +429,57 @@ export default function AllocationPage() {
             {advisory.skippedRows &&
               Object.values(advisory.skippedRows).reduce((sum, count) => sum + count, 0) > 0 && (
                 <p role="status" className="mt-3 rounded-md bg-saffron-100 p-3 text-sm text-saffron-700">
-                  Some rows in the selected dates were skipped because date, weekday, class,
-                  subject, period, or teacher information is missing or invalid. Check
-                  JHS_Raw_Data before relying on this schedule.
+                  Some JHS_Raw_Data rows were skipped due to invalid or missing schedule fields.
+                  The breakdown below distinguishes unparsed dates from invalid schedule rows in
+                  the selected date window.
                 </p>
               )}
+            {advisory.skippedRows &&
+              Object.entries(advisory.skippedRows).some(([, count]) => count > 0) && (
+                <div role="status" className="mt-3 rounded-md bg-saffron-100 p-3 text-sm text-saffron-700">
+                  <p className="font-semibold">Skipped-row breakdown</p>
+                  <ul className="mt-1 list-inside list-disc">
+                    {Object.entries(advisory.skippedRows)
+                      .filter(([, count]) => count > 0)
+                      .map(([field, count]) => <li key={field}>{field}: {count}</li>)}
+                  </ul>
+                  {advisory.invalidDateSamples?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-medium">First unparsed Date-column values:</p>
+                      <ul className="mt-1 list-inside list-disc">
+                        {advisory.invalidDateSamples.map((sample) => (
+                          <li key={sample.row}>
+                            Row {sample.row}: raw “{sample.rawValue || '(blank)'}”; displayed
+                            “{sample.displayedValue || '(blank)'}”
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            {advisory.rowsInDateRange === 0 && advisory.validDateRows > 0 && (
+              <div role="status" className="mt-3 rounded-md bg-saffron-100 p-3 text-sm text-saffron-700">
+                <p className="font-semibold">
+                  Parsed dates in JHS_Raw_Data: {advisory.earliestValidDate} to {advisory.latestValidDate}.
+                  They don’t overlap the selected date window.
+                </p>
+                <ul className="mt-1 list-inside list-disc">
+                  {advisory.validDateSamples?.map((sample) => (
+                    <li key={sample.row}>
+                      Row {sample.row}: “{sample.displayedValue}” parsed as {sample.parsedDate}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
 
           {advisory.teachers.length === 0 ? (
             <p className="rounded-md bg-paper p-4 text-sm text-ink-soft">
-              No matching teacher assignments were found for the selected classes and date window.
-              Check the dates and class selection.
+              {advisory.rowsInDateRange === 0
+                ? 'No JHS_Raw_Data rows have valid dates inside this selected date window. Check the start/end dates against the Date column.'
+                : 'No valid teacher assignments were found for the selected classes and date window. Check the skipped-row breakdown and class selection.'}
             </p>
           ) : (
             <div className="space-y-4">

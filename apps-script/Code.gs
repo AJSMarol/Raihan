@@ -383,7 +383,9 @@ function appendWeekLog_(weekNo, email, action, details) {
 function generateWeekSchedule_(week) {
   const source = SpreadsheetApp.getActive().getSheetByName(RAW_DATA_SHEET_);
   if (!source) throw apiError_('RAW_DATA_MISSING');
-  const values = source.getDataRange().getValues();
+  const dataRange = source.getDataRange();
+  const values = dataRange.getValues();
+  const displayValues = dataRange.getDisplayValues();
   if (!values.length) throw apiError_('RAW_DATA_MISCONFIGURED');
   const sourceHeaders = values[0].map(function (value) { return String(value).trim(); });
   const headers = sourceHeaders.map(function (value) { return value.toLowerCase(); });
@@ -409,14 +411,42 @@ function generateWeekSchedule_(week) {
     invalidTeacher: 0,
   };
   const bySlot = {};
+  const invalidDateSamples = [];
+  const validDateSamples = [];
   let duplicateRowsSkipped = 0;
-  values.slice(1).forEach(function (sourceRow) {
-    const date = rawDateToIso_(sourceRow[columns.date]);
+  let validDateRows = 0;
+  let rowsInDateRange = 0;
+  let earliestValidDate = '';
+  let latestValidDate = '';
+  values.slice(1).forEach(function (sourceRow, rowIndex) {
+    const rawDate = sourceRow[columns.date];
+    const displayedDate = displayValues[rowIndex + 1][columns.date];
+    const date = rawDateToIso_(rawDate) || rawDateToIso_(displayedDate);
     if (!date) {
-      if (sourceRow.some(function (cell) { return String(cell || '').trim(); })) skippedRows.invalidDate += 1;
+      if (sourceRow.some(function (cell) { return String(cell || '').trim(); })) {
+        skippedRows.invalidDate += 1;
+        if (invalidDateSamples.length < 5) {
+          invalidDateSamples.push({
+            row: rowIndex + 2,
+            rawValue: String(rawDate || '').slice(0, 80),
+            displayedValue: String(displayedDate || '').slice(0, 80),
+          });
+        }
+      }
       return;
     }
+    validDateRows += 1;
+    if (!earliestValidDate || date < earliestValidDate) earliestValidDate = date;
+    if (!latestValidDate || date > latestValidDate) latestValidDate = date;
+    if (validDateSamples.length < 5) {
+      validDateSamples.push({
+        row: rowIndex + 2,
+        parsedDate: date,
+        displayedValue: String(displayedDate || '').slice(0, 80),
+      });
+    }
     if (date < week.startDate || date > week.endDate) return;
+    rowsInDateRange += 1;
     const className = String(sourceRow[columns.className] || '').trim();
     const period = normalizePeriod_(sourceRow[columns.period]);
     const subject = String(sourceRow[columns.subject] || '').trim();
@@ -684,9 +714,15 @@ function generateWeekSchedule_(week) {
       };
     }),
     sourceRows: sessions.length,
+    validDateRows: validDateRows,
+    earliestValidDate: earliestValidDate,
+    latestValidDate: latestValidDate,
+    validDateSamples: validDateSamples,
+    rowsInDateRange: rowsInDateRange,
     allocatedRows: allocated.length,
     duplicateRowsSkipped: duplicateRowsSkipped,
     skippedRows: skippedRows,
+    invalidDateSamples: invalidDateSamples,
     alteredDays: alteredDays,
     alteredDayCount: alteredDays.length,
     lagCount: lags.length,
