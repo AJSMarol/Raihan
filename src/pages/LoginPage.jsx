@@ -97,29 +97,31 @@ export default function LoginPage() {
             form, or scheduling tools.
           </p>
 
-          <div className="mt-10 min-h-[44px]">
-            {checking ? (
-              <p role="status" className="flex items-center gap-3 text-ink-soft">
+          <div
+            className={`mt-10 min-h-[44px] ${checking ? 'pointer-events-none opacity-60' : ''}`}
+            aria-busy={checking}
+          >
+            <GoogleLogin
+              onSuccess={({ credential }) => {
+                setClientError(null);
+                if (credential) signIn(credential);
+              }}
+              onError={() =>
+                setClientError(
+                  "Google sign-in didn't complete. Allow pop-ups for this site and try again.",
+                )
+              }
+              theme="outline"
+              size="large"
+              shape="rectangular"
+              text="signin_with"
+              width="320"
+            />
+            {checking && (
+              <p role="status" className="mt-3 flex items-center gap-3 text-ink-soft">
                 <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 Checking your access
               </p>
-            ) : (
-              <GoogleLogin
-                onSuccess={({ credential }) => {
-                  setClientError(null);
-                  if (credential) signIn(credential);
-                }}
-                onError={() =>
-                  setClientError(
-                    "Google sign-in didn't complete. Allow pop-ups for this site and try again.",
-                  )
-                }
-                theme="outline"
-                size="large"
-                shape="rectangular"
-                text="signin_with"
-                width="320"
-              />
             )}
           </div>
 
