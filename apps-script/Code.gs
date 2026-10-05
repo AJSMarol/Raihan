@@ -828,7 +828,10 @@ function getTemporaryTeachers_() {
     } catch (error) {
       throw apiError_('TEMP_TEACHER_DATA_MISCONFIGURED');
     }
-    if (!Array.isArray(subjects) || !availability || typeof availability !== 'object') {
+    if (!Array.isArray(subjects) ||
+        subjects.some(function (subject) { return typeof subject !== 'string' || !subject.trim(); }) ||
+        !availability ||
+        typeof availability !== 'object') {
       throw apiError_('TEMP_TEACHER_DATA_MISCONFIGURED');
     }
     return {
@@ -936,6 +939,7 @@ function assignTemporaryTeachers_(week) {
     for (let teacherIndex = 0; teacherIndex < teachers.length && !completed; teacherIndex += 1) {
       const teacher = teachers[teacherIndex];
       if (!teacher.subjects.some(function (value) {
+        if (typeof value !== 'string') throw apiError_('TEMP_TEACHER_DATA_MISCONFIGURED');
         return value.toLowerCase() === subject.toLowerCase() || value === '*';
       })) continue;
       for (let dayIndex = 0; dayIndex < WEEKDAYS_.length && !completed; dayIndex += 1) {
