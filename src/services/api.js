@@ -14,7 +14,7 @@ const ERROR_MESSAGES = {
   UNKNOWN_ACTION: 'The server does not recognise this request. The app and the Apps Script may be out of date.',
   SERVER_MISCONFIGURED: 'The Users sheet is missing from the spreadsheet. Check the Apps Script setup.',
   SERVER_ERROR: 'The server hit an error. Try again in a moment.',
-  CONFIG_MISSING: 'VITE_API_URL is not set. Add it to .env.local and restart the dev server.',
+  CONFIG_MISSING: 'The app API URL is not set. Check src/config/publicConfig.js.',
   NETWORK: "Couldn't reach the server. Check your connection and try again.",
   BAD_RESPONSE: 'The server sent a response the app could not read. Check the Apps Script deployment.',
   UNKNOWN: 'Something went wrong. Try again.',

@@ -24,12 +24,6 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run build
-        env:
-          # Set these under Settings > Secrets and variables > Actions > Variables.
-          # They end up in the public bundle, so they are variables, not secrets.
-          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

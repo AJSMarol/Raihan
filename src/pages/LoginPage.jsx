@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { GoogleLogin } from '@react-oauth/google';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { missingEnv } from '@/config/env';
 import { ROLE_HOME } from '@/config/roles';
 import { useAuth } from '@/context/useAuth';
 import { canAccessPath } from '@/routes/routeConfig';
@@ -99,12 +98,7 @@ export default function LoginPage() {
           </p>
 
           <div className="mt-10 min-h-[44px]">
-            {missingEnv.length > 0 ? (
-              <p className="rounded-md border border-saffron-500/40 bg-saffron-100 p-3 text-sm text-saffron-700">
-                Missing configuration: {missingEnv.join(', ')}. Copy <code>.env.example</code> to{' '}
-                <code>.env.local</code>, fill it in, and restart the dev server.
-              </p>
-            ) : checking ? (
+            {checking ? (
               <p role="status" className="flex items-center gap-3 text-ink-soft">
                 <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 Checking your access

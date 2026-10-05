@@ -25,30 +25,35 @@ Modules 1-5 are placeholder pages; the Allocation Engine is next.
    | teacher@example.com | viewer | A. Teacher | | 12345 | TRUE |
 
    Roles: `admin`, `scheduler`, `monitor`, `viewer`. Monitors need `assigned_class`.
-2. Extensions > Apps Script. Paste `apps-script/Code.gs` and set `GOOGLE_CLIENT_ID`.
+2. Extensions > Apps Script. Paste `apps-script/Code.gs`; its `GOOGLE_CLIENT_ID` must match
+   `googleClientId` in `src/config/publicConfig.js`.
 3. Deploy > New deployment > Web app. Execute as **Me**, access **Anyone**. Copy the `/exec` URL.
 
-## 3. Run locally
+## 3. Public app configuration
 
-```bash
-npm install
-cp .env.example .env.local     # fill in VITE_GOOGLE_CLIENT_ID and VITE_API_URL
-npm run dev                    # http://localhost:5173
-```
+Set `googleClientId` and `apiUrl` in `src/config/publicConfig.js`:
+
+- `googleClientId`: the web OAuth client ID from Google Cloud.
+- `apiUrl`: the deployed Apps Script web app `/exec` URL.
+
+These values are public and are included in the browser bundle. Do not put private
+credentials or secrets in this file. The OAuth client ID must match the ID configured
+in `apps-script/Code.gs`.
+
+To run locally, use `npm install` and `npm run dev` (`http://localhost:5173`).
 
 ## 4. Deploy to GitHub Pages
 
 1. Push to a GitHub repo (default branch `main`) and commit the `package-lock.json` that `npm install` created.
 2. Settings > Pages > Source: **GitHub Actions**.
-3. Settings > Secrets and variables > Actions > **Variables**: add `VITE_GOOGLE_CLIENT_ID` and `VITE_API_URL`.
-4. Push again. The workflow in `.github/workflows/deploy.yml` builds and publishes.
+3. Push to `main`. The workflow in `.github/workflows/deploy.yml` builds and publishes; no Actions variables are required.
 
 The app uses `HashRouter` (URLs look like `/#/allocation`) because GitHub Pages can't rewrite
 unknown paths to `index.html`.
 
 ## 5. Arabic font
 
-Add the licensed font as `public/fonts/KanzAlLulu.woff2`. It applies only to elements with
+The Kanz Al Lulu font is bundled from `src/assets/fonts/` and applies only to elements with
 `lang="ar"` or `dir="rtl"`. In Arabic modules, prefer logical Tailwind classes (`ms-*`, `me-*`,
 `ps-*`, `pe-*`, `text-start`) so layouts flip correctly.
 
@@ -68,7 +73,7 @@ Add the licensed font as `public/fonts/KanzAlLulu.woff2`. It applies only to ele
 
 ```
 apps-script/Code.gs        backend: token check + Users sheet lookup
-src/config/                env + role constants
+src/config/                public app config + role constants
 src/services/api.js        the only place that talks to Apps Script
 src/context/               AuthProvider (Context + useReducer), useAuth
 src/routes/                routeConfig, ProtectedRoute, AppRoutes

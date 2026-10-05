@@ -1,8 +1,8 @@
 /**
  * Raihan Timetable AI - Apps Script API (auth + role lookup)
  *
- * Setup: open the Google Sheet > Extensions > Apps Script, paste this file, set GOOGLE_CLIENT_ID,
- * then Deploy > New deployment > Web app:
+ * Setup: open the Google Sheet > Extensions > Apps Script and paste this file. Keep
+ * GOOGLE_CLIENT_ID matched with src/config/publicConfig.js, then Deploy > New deployment > Web app:
  *   Execute as: Me        Who has access: Anyone
  * ("Anyone", not "Anyone with a Google account" - the browser can't send Google cookies here.
  *  Access is controlled by the ID-token check and the Users sheet below.)
@@ -18,7 +18,7 @@
  */
 
 const CONFIG = {
-  GOOGLE_CLIENT_ID: 'PASTE_YOUR_CLIENT_ID.apps.googleusercontent.com',
+  GOOGLE_CLIENT_ID: '876000319872-6tlbemn0hvv2g78ag3b97hqth863n6cg.apps.googleusercontent.com',
   USERS_SHEET: 'Users',
   VALID_ROLES: ['admin', 'scheduler', 'monitor', 'viewer'],
 };
