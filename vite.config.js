@@ -8,12 +8,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     // GitHub Pages project sites live under /<repo-name>/ (must end with a slash).
-    base: env.VITE_BASE_PATH || '/',
+    base: env.VITE_BASE_PATH || '/Raihan/',
     plugins: [react()],
-    base: '/raihan/'
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     },
   };
 });
-)
