@@ -990,8 +990,40 @@ function rawDateToIso_(value) {
   if (value instanceof Date && !isNaN(value.getTime())) {
     return Utilities.formatDate(value, SpreadsheetApp.getActive().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
   }
+  if (typeof value === 'number') {
+    if (!isFinite(value) || value < 1 || value > 2958465) return '';
+    const serialDate = new Date(Date.UTC(1899, 11, 30) + Math.floor(value) * 86400000);
+    return serialDate.toISOString().slice(0, 10);
+  }
+
   const text = String(value || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return isValidIsoDate_(text) ? text : '';
+  if (!text) return '';
+  const isoMatch = text.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
+  if (isoMatch) return isValidIsoDate_(isoMatch[1]) ? isoMatch[1] : '';
+
+  const numericMatch = text.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:\s.*)?$/);
+  if (numericMatch) {
+    const first = Number(numericMatch[1]);
+    const second = Number(numericMatch[2]);
+    const year = Number(numericMatch[3]);
+    const locale = SpreadsheetApp.getActive().getSpreadsheetLocale().toLowerCase();
+    const monthFirst = first <= 12 && (second > 12 || /^en_us(?:$|_)/.test(locale));
+    const month = monthFirst ? first : second;
+    const day = monthFirst ? second : first;
+    const normalized = [
+      String(year).padStart(4, '0'),
+      String(month).padStart(2, '0'),
+      String(day).padStart(2, '0'),
+    ].join('-');
+    return isValidIsoDate_(normalized) ? normalized : '';
+  }
+
+  const numericSerial = Number(text);
+  if (Number.isFinite(numericSerial) && numericSerial >= 1 && numericSerial <= 2958465) {
+    const serialDate = new Date(Date.UTC(1899, 11, 30) + Math.floor(numericSerial) * 86400000);
+    return serialDate.toISOString().slice(0, 10);
+  }
+
   const parsed = new Date(text);
   return isNaN(parsed.getTime()) ? '' : Utilities.formatDate(
     parsed,
