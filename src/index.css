@@ -2,13 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Arabic web font. Drop the licensed file at public/fonts/KanzAlLulu.woff2.
-   unicode-range keeps it on Arabic glyphs only; Latin text stays in IBM Plex Sans. */
+/* Kanz Al Lulu is the Arabic web font; Latin text stays in IBM Plex Sans. */
 @font-face {
   font-family: 'Kanz Al Lulu';
   src:
     local('Kanz Al Lulu'),
-    url('/fonts/KanzAlLulu.woff2') format('woff2');
+    url('./assets/fonts/KanzAlLulu-Regular.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
