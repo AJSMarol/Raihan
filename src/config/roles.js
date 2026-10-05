@@ -14,7 +14,7 @@ export const ROLE_LABELS = Object.freeze({
 
 /** Where each role lands after signing in. */
 export const ROLE_HOME = Object.freeze({
-  [ROLES.ADMIN]: '/ingestion',
+  [ROLES.ADMIN]: '/allocation',
   [ROLES.SCHEDULER]: '/allocation',
   [ROLES.MONITOR]: '/syllabus',
   [ROLES.VIEWER]: '/my-timetable',

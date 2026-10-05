@@ -12,10 +12,7 @@ export default function SyllabusPage() {
           ? `Progress form for class ${user.assignedClass}.`
           : 'Progress form for a class. Admins will choose the class here.'
       }
-      upcoming={[
-        'Phase 1: Covered till now (before the week starts)',
-        'Phase 2: Covered during Raihan (end of the week)',
-      ]}
+      upcoming={['Planned for Phase 3: pre-relocation syllabus reports and teacher briefings.']}
     />
   );
 }

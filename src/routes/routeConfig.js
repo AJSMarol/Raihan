@@ -8,7 +8,6 @@ import {
   LayoutGrid,
   RefreshCcw,
   Send,
-  Upload,
 } from 'lucide-react';
 import { ROLES } from '@/config/roles';
 
@@ -20,13 +19,6 @@ const { ADMIN, SCHEDULER, MONITOR, VIEWER } = ROLES;
  * (The Apps Script backend enforces the same roles independently - this is UX, not security.)
  */
 export const appRoutes = [
-  {
-    path: '/ingestion',
-    label: 'Upload & clean',
-    icon: Upload,
-    roles: [ADMIN, SCHEDULER],
-    component: lazy(() => import('@/modules/ingestion/IngestionPage')),
-  },
   {
     path: '/allocation',
     label: 'Allocation',
