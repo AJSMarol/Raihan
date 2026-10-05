@@ -48,6 +48,14 @@ in `apps-script/Code.gs`.
 
 To run locally, use `npm install` and `npm run dev` (`http://localhost:5173`).
 
+### Login background image
+
+Place the full-screen login photograph at `public/login-background.jpg`. The sign-in panel is
+layered above the image with a dark readability overlay. Use a landscape 16:9 image, ideally
+2560 x 1440 pixels (1920 x 1080 minimum), in JPG format; aim for less than 1.5 MB. Keep the
+important subject near the center because `cover` cropping adjusts the edges on narrow/mobile
+screens. The existing fallback background remains visible until the image is added.
+
 ## 4. Deploy to GitHub Pages
 
 1. Push to a GitHub repo (default branch `main`) and commit the `package-lock.json` that `npm install` created.
