@@ -49,8 +49,12 @@ export default function LoginPage() {
               )
             }
             theme="outline"
-            type="icon"
-            shape="circle"
+            type="standard"
+            size="large"
+            shape="rectangular"
+            text="signin_with"
+            logo_alignment="left"
+            width="360"
           />
       </section>
 
