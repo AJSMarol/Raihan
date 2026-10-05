@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Arabic web font. Drop the licensed file at public/fonts/KanzAlLulu.woff2.
+   unicode-range keeps it on Arabic glyphs only; Latin text stays in IBM Plex Sans. */
+@font-face {
+  font-family: 'Kanz Al Lulu';
+  src:
+    local('Kanz Al Lulu'),
+    url('/fonts/KanzAlLulu.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+@layer base {
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+  }
+
+  /* Arabic modules: put lang="ar" dir="rtl" on a container and everything inside follows. */
+  :lang(ar),
+  [dir='rtl'] {
+    font-family: theme('fontFamily.arabic');
+    line-height: 1.9;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.lapis.500');
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Keeps background colours when a colour-coded timetable is printed. */
+  .print-color-exact {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body {
+    background: white;
+  }
+}
