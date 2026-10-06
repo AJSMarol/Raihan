@@ -23,6 +23,7 @@ const ERROR_MESSAGES = {
   WEEK_CONFIG_MISCONFIGURED: 'This week’s saved setup is invalid. Contact an admin.',
   SHEET_SCHEMA_MISCONFIGURED: 'A Raihan system sheet has unexpected headers. Contact an admin.',
   TEMP_TEACHER_DATA_MISCONFIGURED: 'A saved temporary teacher profile is invalid. Check Raihan_Temp_Teachers.',
+  TEMP_TEACHER_NOT_FOUND: 'The selected temporary teacher ID was not found in Raihan_Temp_Teachers. Check the Temp_ID cell and refresh the timetable.',
   TEMP_TEACHER_NAME_REQUIRED: 'Enter a temporary teacher name before saving.',
   TEMP_TEACHER_ID_INVALID: 'This saved profile has an unsupported ID. Choose Add new and save it as a new profile.',
   TEMP_TEACHER_SUBJECT_REQUIRED: 'Add at least one subject before saving this profile.',

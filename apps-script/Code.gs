@@ -369,7 +369,7 @@ function handleGetFinalRaihanWeek_(ctx, payload) {
 function handleAssignRaihanLag_(ctx, payload) {
   const weekNo = validateWeekNo_(payload.weekNo);
   const rowNumber = Number(payload.rowNumber);
-  const teacherId = String(payload.teacherId || '').trim();
+  let teacherId = String(payload.teacherId || '').trim();
   const period = normalizePeriod_(payload.period);
   const targetDate = String(payload.targetDate || '').trim();
   const requestedSubject = String(payload.subject || '').trim();
@@ -402,9 +402,11 @@ function handleAssignRaihanLag_(ctx, payload) {
         ['RAIHAN', 'MANUAL_ASSIGNED'].indexOf(String(row[1])) >= 0 &&
         String(row[7]) === teacherId && row[9];
     });
-    const temporaryTeacher = teacherId.indexOf('TEMP_') === 0
-      ? getTemporaryTeachers_().filter(function (teacher) { return teacher.id === teacherId; })[0]
-      : null;
+    const temporaryTeacher = getTemporaryTeacherById_(teacherId);
+    if (!temporaryTeacher && /^TEMP_/i.test(teacherId)) {
+      throw apiError_('TEMP_TEACHER_NOT_FOUND');
+    }
+    if (temporaryTeacher) teacherId = temporaryTeacher.id;
     const assignedDate = targetDate || rawDateToIso_(teacherRows[0] && teacherRows[0][9]);
     const assignedDay = rawDateToWeekday_(assignedDate);
     if (!isValidIsoDate_(assignedDate) || assignedDate < week.startDate || assignedDate > week.endDate ||
@@ -453,7 +455,7 @@ function handleAssignRaihanLag_(ctx, payload) {
             normalizePeriod_(row[outputPeriodColumn]) === oldPeriod &&
             String(row[outputClassColumn]) === target &&
             String(row[outputSubjectColumn]) === String(workingRow[6]) &&
-            (String(workingRow[7]).indexOf('TEMP_') === 0
+            (temporaryTeacher
               ? String(row[outputTeacherColumn]).indexOf(String(workingRow[7])) >= 0
               : parseTeacherAssignments_(row[outputTeacherColumn]).some(function (teacher) {
                 return teacher.id === String(workingRow[7]);
@@ -470,7 +472,7 @@ function handleAssignRaihanLag_(ctx, payload) {
       if (oldAllocationRowNumber && row === allocationRows[oldAllocationRowNumber - 2]) return;
       if (String(row[outputClassColumn]) === target) throw apiError_('RAIHAN_CLASS_SLOT_OCCUPIED');
       const occupiedTeacher = String(row[outputTeacherColumn] || '');
-      if ((teacherId.indexOf('TEMP_') === 0 && occupiedTeacher.indexOf(teacherId) >= 0) ||
+      if ((temporaryTeacher && occupiedTeacher.indexOf(teacherId) >= 0) ||
           parseTeacherAssignments_(occupiedTeacher).some(function (teacher) {
             return teacher.id === teacherId;
           })) throw apiError_('RAIHAN_TEACHER_SLOT_OCCUPIED');
@@ -1310,8 +1312,8 @@ function getTemporaryTeachers_() {
       throw apiError_('TEMP_TEACHER_DATA_MISCONFIGURED');
     }
     return {
-      id: String(row[0]),
-      name: String(row[1]),
+      id: String(row[0] || '').trim(),
+      name: String(row[1] || '').trim(),
       phone: String(row[2] || ''),
       subjects: subjects,
       availability: WEEKDAYS_.reduce(function (normalized, day) {
@@ -1323,6 +1325,13 @@ function getTemporaryTeachers_() {
       }, {}),
     };
   });
+}
+
+function getTemporaryTeacherById_(teacherId) {
+  const normalizedId = String(teacherId || '').trim().toUpperCase();
+  return getTemporaryTeachers_().filter(function (teacher) {
+    return teacher.id.toUpperCase() === normalizedId;
+  })[0] || null;
 }
 
 function validateTemporaryTeacher_(payload) {
