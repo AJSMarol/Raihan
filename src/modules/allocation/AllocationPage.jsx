@@ -456,6 +456,22 @@ export default function AllocationPage() {
                       </ul>
                     </div>
                   )}
+                  {advisory.invalidScheduleSamples?.length > 0 && (
+                    <div className="mt-2">
+                      <p className="font-medium">Examples of rows with unrecognized schedule fields:</p>
+                      <ul className="mt-1 space-y-1">
+                        {advisory.invalidScheduleSamples.map((sample) => (
+                          <li key={sample.row}>
+                            Row {sample.row}: Period raw “{sample.periodRaw || '(blank)'}”, displayed
+                            “{sample.periodDisplayed || '(blank)'}”; teacher raw
+                            “{sample.teacherRaw || '(blank)'}”, displayed
+                            “{sample.teacherDisplayed || '(blank)'}”
+                            {sample.invalidSubject ? '; Subject is blank' : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             {advisory.rowsInDateRange === 0 && advisory.validDateRows > 0 && (

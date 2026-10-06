@@ -413,6 +413,7 @@ function generateWeekSchedule_(week) {
   const bySlot = {};
   const invalidDateSamples = [];
   const validDateSamples = [];
+  const invalidScheduleSamples = [];
   let duplicateRowsSkipped = 0;
   let validDateRows = 0;
   let rowsInDateRange = 0;
@@ -455,6 +456,21 @@ function generateWeekSchedule_(week) {
     if (!period) skippedRows.invalidPeriod += 1;
     if (!subject) skippedRows.invalidSubject += 1;
     if (!assignments.length) skippedRows.invalidTeacher += 1;
+    if ((!period || !subject || !assignments.length) && invalidScheduleSamples.length < 8) {
+      const displayRow = displayValues[rowIndex + 1];
+      invalidScheduleSamples.push({
+        row: rowIndex + 2,
+        className: String(sourceRow[columns.className] || '').slice(0, 80),
+        subject: String(sourceRow[columns.subject] || '').slice(0, 80),
+        periodRaw: String(sourceRow[columns.period] || '').slice(0, 80),
+        periodDisplayed: String(displayRow[columns.period] || '').slice(0, 80),
+        teacherRaw: String(sourceRow[columns.teacher] || '').slice(0, 120),
+        teacherDisplayed: String(displayRow[columns.teacher] || '').slice(0, 120),
+        invalidPeriod: !period,
+        invalidSubject: !subject,
+        invalidTeacher: !assignments.length,
+      });
+    }
     if (!className || !period || !subject || !assignments.length) return;
     const day = rawDateToWeekday_(date);
     if (WEEKDAYS_.indexOf(day) < 0) {
@@ -723,6 +739,7 @@ function generateWeekSchedule_(week) {
     duplicateRowsSkipped: duplicateRowsSkipped,
     skippedRows: skippedRows,
     invalidDateSamples: invalidDateSamples,
+    invalidScheduleSamples: invalidScheduleSamples,
     alteredDays: alteredDays,
     alteredDayCount: alteredDays.length,
     lagCount: lags.length,
