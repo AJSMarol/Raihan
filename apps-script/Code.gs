@@ -899,6 +899,7 @@ function generateWeekSchedule_(week) {
       }
       session.assignments.sort(function (a, b) { return Number(a.isMusanid) - Number(b.isMusanid); });
       session.row[columns.teacher] = formatTeacherAssignments_(session.assignments);
+      session.sourceRows.push(rowIndex + 2);
       return;
     }
     const row = sourceRow.slice();
@@ -909,6 +910,7 @@ function generateWeekSchedule_(week) {
     row[columns.teacher] = formatTeacherAssignments_(assignments);
     bySlot[key] = {
       key: key,
+      sourceRows: [rowIndex + 2],
       row: row,
       date: date,
       day: day,
@@ -1133,6 +1135,21 @@ function generateWeekSchedule_(week) {
           return session.status === 'LAG';
         }).length,
         homeCommitmentsByDay: teacher.homeByDay,
+        localCampusMoves: teacher.displaced.map(function (session) {
+          return {
+            sourceRows: session.sourceRows,
+            className: session.className,
+            subject: session.subject,
+            sourceDate: session.date,
+            sourceDay: session.day,
+            sourcePeriod: formatPeriod_(session.period),
+            suggestedDate: session.status === 'MOVED' ? session.assignedDate : '',
+            suggestedDay: session.status === 'MOVED' ? rawDateToWeekday_(session.assignedDate) : '',
+            suggestedPeriod: session.status === 'MOVED' ? formatPeriod_(session.assignedPeriod) : '',
+            status: session.status === 'MOVED' ? 'MOVE_SUGGESTED' : 'NO_FREE_SLOT',
+            diagnostic: session.diagnostic || '',
+          };
+        }),
       };
     }),
     sourceRows: sessions.length,

@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
+  Download,
   Loader2,
   RefreshCw,
   Save,
@@ -27,6 +28,41 @@ function weekdaysInRange(startDate, endDate) {
     days.add(WEEKDAYS[(date.getUTCDay() + 6) % 7]);
   }
   return WEEKDAYS.filter((day) => days.has(day));
+}
+
+function downloadLocalCampusMovePlan(teachers, weekNo) {
+  const headers = [
+    'Teacher_ID', 'Teacher_Name', 'Raihan_Day', 'JHS_Raw_Data_Row(s)', 'Class', 'Subject',
+    'Current_Day', 'Current_Date', 'Current_Period', 'Suggested_Day', 'Suggested_Date',
+    'Suggested_Period', 'Status',
+  ];
+  const rows = teachers.flatMap((teacher) => (teacher.localCampusMoves || []).map((move) => [
+    teacher.teacherId,
+    teacher.teacherName,
+    teacher.raihanDay,
+    (move.sourceRows || []).join(', '),
+    move.className,
+    move.subject,
+    move.sourceDay,
+    move.sourceDate,
+    move.sourcePeriod,
+    move.suggestedDay,
+    move.suggestedDate,
+    move.suggestedPeriod,
+    move.status === 'MOVE_SUGGESTED' ? 'Review suggested move' : 'No free destination found',
+  ]));
+  const csv = [headers, ...rows].map((row) => row.map((value) => {
+    const text = String(value ?? '');
+    return `"${text.replace(/"/g, '""')}"`;
+  }).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Raihan_Local_Campus_Move_Plan_Week_${weekNo}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function AllocationPage() {
@@ -509,7 +545,30 @@ export default function AllocationPage() {
                   {savingTeacherDays && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                   {savingTeacherDays ? 'Saving days and rebuilding…' : 'Apply teacher days and rebuild'}
                 </button>
+                <p className="mt-3 text-sm text-ink-soft">
+                  This is a proposed plan only. It does not edit JHS_Raw_Data. Review the destination periods, make the agreed changes in the local-campus timetable, then paste the updated data into JHS_Raw_Data and refresh the advisory.
+                </p>
               </section>
+              {advisory.teachers.some((teacher) => teacher.localCampusMoves?.length > 0) && (
+                <section className="rounded-lg border border-saffron-500/30 bg-saffron-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-ink">Local-campus periods to relocate</h3>
+                      <p className="mt-1 text-sm text-ink-soft">
+                        These are the affected JHS_Raw_Data rows for the currently analyzed Raihan days. Suggested destinations avoid occupied class and teacher periods where possible. A no-slot result needs manual review.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => downloadLocalCampusMovePlan(advisory.teachers, weekNo)}
+                      className="inline-flex shrink-0 items-center gap-2 rounded-md border border-ink/20 bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-paper"
+                    >
+                      <Download className="h-4 w-4" aria-hidden="true" />
+                      Download move plan CSV
+                    </button>
+                  </div>
+                </section>
+              )}
               {advisory.teachers.map((teacher) => (
                 <article key={teacher.teacherId} className="rounded-lg border border-ink/10 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -530,6 +589,36 @@ export default function AllocationPage() {
                     <p className="mt-1 text-sm font-medium text-saffron-700">
                       {teacher.unplacedHomeCommitments} home-campus session(s) could not be moved and are listed as lags.
                     </p>
+                  )}
+                  {teacher.localCampusMoves?.length > 0 && (
+                    <div className="mt-4 overflow-x-auto rounded-md border border-ink/10">
+                      <table className="w-full min-w-[760px] border-collapse text-sm">
+                        <thead className="bg-paper text-start">
+                          <tr>
+                            {['Raw row', 'Class · subject', 'Current local slot', 'Suggested slot', 'Plan'].map((heading) => (
+                              <th key={heading} className="p-2 text-start font-medium">{heading}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {teacher.localCampusMoves.map((move, index) => (
+                            <tr key={`${teacher.teacherId}-${move.sourceRows?.join('-') || index}`} className="border-t border-ink/10">
+                              <td className="p-2">{(move.sourceRows || []).map((row) => `Row ${row}`).join(', ')}</td>
+                              <td className="p-2">{move.className} · {move.subject}</td>
+                              <td className="p-2">{move.sourceDay} {move.sourcePeriod} · {move.sourceDate}</td>
+                              <td className="p-2">
+                                {move.status === 'MOVE_SUGGESTED'
+                                  ? `${move.suggestedDay} ${move.suggestedPeriod} · ${move.suggestedDate}`
+                                  : 'No free slot found'}
+                              </td>
+                              <td className={`p-2 font-medium ${move.status === 'MOVE_SUGGESTED' ? 'text-raihan-700' : 'text-saffron-700'}`}>
+                                {move.status === 'MOVE_SUGGESTED' ? 'Review move' : 'Manual review required'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </article>
               ))}

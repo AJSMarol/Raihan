@@ -96,7 +96,12 @@ unknown paths to `index.html`.
   profiles and can collision-check compatible assignments.
 - Before final placement, the Allocation page suggests each selected teacher's least-committed
   Raihan day and lets the scheduler change it. Applying the choices stores them in
-  `Raihan_Teacher_Days` and rebuilds the week's schedule.
+  `Raihan_Teacher_Days` and rebuilds the week's schedule. The advisory identifies the exact
+  `JHS_Raw_Data` row(s) for each local-campus lesson that must move, with the solver's proposed
+  destination date and period. Download the move-plan CSV for review and offline coordination.
+  This is a recommendation only: it does not change `JHS_Raw_Data`. Make agreed edits in the
+  local-campus timetable, paste the revised source data into `JHS_Raw_Data`, then refresh the
+  advisory and rebuild.
 - **Raihan final timetable** displays all dates in the configured window for one class as a
   class x period crosstab, with teacher or subject filters. Edit/move a placed card directly or
   drag it to a free slot, then select its date, period, eligible regular or temporary teacher,
