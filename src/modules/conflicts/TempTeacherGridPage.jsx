@@ -99,6 +99,8 @@ export default function TempTeacherGridPage() {
     try {
       const result = await apiCall('tempTeachers.save', {
         ...profile,
+        name: profile.name.trim(),
+        phone: profile.phone.trim(),
         subjects: subjectList,
       });
       if (!result?.teacher?.id) throw new ApiError('BAD_RESPONSE');
@@ -106,7 +108,11 @@ export default function TempTeacherGridPage() {
       setProfile((current) => ({ ...current, id: result.teacher.id }));
       await loadProfiles();
     } catch (requestError) {
-      setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
+      setError(
+        requestError instanceof ApiError && requestError.code === 'INVALID_PAYLOAD'
+          ? 'Apps Script rejected this profile. Check that the teacher name is not blank, at least one subject and period are selected, and the latest Code.gs (Raihan P1–P9 support) is deployed.'
+          : requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE,
+      );
     } finally {
       setSaving(false);
     }
@@ -312,7 +318,12 @@ export default function TempTeacherGridPage() {
 
           <button
             type="submit"
-            disabled={saving || subjectList.length === 0 || !DAYS.some((day) => profile.availability[day]?.length)}
+            disabled={
+              saving ||
+              !profile.name.trim() ||
+              subjectList.length === 0 ||
+              !DAYS.some((day) => profile.availability[day]?.length)
+            }
             className="inline-flex items-center gap-2 rounded-md bg-lapis-600 px-4 py-2 text-sm font-medium text-white hover:bg-lapis-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}

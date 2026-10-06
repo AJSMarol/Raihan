@@ -4,58 +4,29 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
-  Clipboard,
   Loader2,
-  MessageCircle,
   RefreshCw,
   Save,
 } from 'lucide-react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
+import {
+  clearAllocationAdvisory,
+  getActiveAllocationWeek,
+  getAllocationAdvisory,
+  setActiveAllocationWeek,
+  setAllocationAdvisory,
+} from './allocationSession';
 
 const WEEK_NUMBERS = Array.from({ length: 41 }, (_, index) => index + 1);
 
-function displayDate(value) {
-  if (!value) return '';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeZone: 'UTC' }).format(
-    new Date(`${value}T12:00:00Z`),
-  );
-}
-
-function noticeFor(audience, week, teachers) {
-  const classes = week.classes.join(', ');
-  const period = `${displayDate(week.startDate)} to ${displayDate(week.endDate)}`;
-  if (audience === 'students') {
-    return [
-      'RAIHAN CAMPUS NOTICE',
-      `Week ${week.weekNo} (${period})`,
-      `Classes attending Raihan: ${classes}.`,
-      'Please follow the instructions and timetable shared by your Asateza.',
-    ].join('\n');
-  }
-
-  const travelDays = teachers.length
-    ? teachers
-        .map((teacher) => `${teacher.teacherName} (${teacher.teacherId}): ${teacher.raihanDay}`)
-        .join('\n')
-    : 'Teacher travel-day advisory will be available after schedule analysis.';
-  return [
-    'ASATEZA OPERATIONAL NOTICE',
-    `Week ${week.weekNo} (${period})`,
-    `Classes attending Raihan: ${classes}.`,
-    'Assigned Raihan days:',
-    travelDays,
-    'Please review the advisory and coordinate any home-campus timetable adjustments.',
-  ].join('\n');
-}
-
 export default function AllocationPage() {
-  const [weekNo, setWeekNo] = useState(1);
+  const [weekNo, setWeekNo] = useState(getActiveAllocationWeek);
   const [classes, setClasses] = useState([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedClasses, setSelectedClasses] = useState([]);
   const [savedSetup, setSavedSetup] = useState(null);
-  const [advisory, setAdvisory] = useState(null);
+  const [advisory, setAdvisory] = useState(() => getAllocationAdvisory(getActiveAllocationWeek()));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -69,13 +40,14 @@ export default function AllocationPage() {
     setLoading(true);
     setError(null);
     setNotice(null);
-    setAdvisory(null);
     setAdvanced(false);
     setClasses([]);
     setStartDate('');
     setEndDate('');
     setSelectedClasses([]);
     setSavedSetup(null);
+    setActiveAllocationWeek(weekNo);
+    setAdvisory(getAllocationAdvisory(weekNo));
 
     apiCall('relocation.getWeek', { weekNo })
       .then((result) => {
@@ -128,6 +100,7 @@ export default function AllocationPage() {
   const toggleClass = (className) => {
     setNotice(null);
     setAdvisory(null);
+    clearAllocationAdvisory(weekNo);
     setAdvanced(false);
     setSelectedClasses((current) =>
       current.includes(className)
@@ -152,6 +125,7 @@ export default function AllocationPage() {
       });
       setNotice(`Week ${weekNo} relocation setup saved.`);
       setAdvisory(null);
+      clearAllocationAdvisory(weekNo);
       setAdvanced(false);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
@@ -169,6 +143,7 @@ export default function AllocationPage() {
       const result = await apiCall('relocation.analyzeWeek', { weekNo });
       if (!Array.isArray(result?.teachers)) throw new ApiError('BAD_RESPONSE');
       setAdvisory(result);
+      setAllocationAdvisory(weekNo, result);
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
     } finally {
@@ -188,6 +163,7 @@ export default function AllocationPage() {
       const result = await apiCall('relocation.analyzeWeek', { weekNo });
       if (!Array.isArray(result?.teachers)) throw new ApiError('BAD_RESPONSE');
       setAdvisory(result);
+      setAllocationAdvisory(weekNo, result);
       setNotice('JHS_Raw_Data refreshed. Review the updated advisory below.');
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
@@ -213,25 +189,6 @@ export default function AllocationPage() {
       setRecording(false);
     }
   };
-
-  const copyNotice = async (audience) => {
-    const text = noticeFor(audience, currentSetup, advisory?.teachers ?? []);
-    try {
-      await navigator.clipboard.writeText(text);
-      setError(null);
-      setNotice(`${audience === 'students' ? 'Student' : 'Asateza'} notice copied.`);
-    } catch {
-      setError('Could not copy the notice. Check clipboard permission and try again.');
-    }
-  };
-
-  const openWhatsApp = (audience) => {
-    const text = noticeFor(audience, currentSetup, advisory?.teachers ?? []);
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer');
-  };
-
-  const setupReady = validDates && selectedClasses.length > 0;
-  const noticeEnabled = setupReady;
 
   return (
     <section className="mx-auto max-w-5xl space-y-8">
@@ -292,6 +249,7 @@ export default function AllocationPage() {
               onChange={(event) => {
                 setStartDate(event.target.value);
                 setAdvisory(null);
+                clearAllocationAdvisory(weekNo);
                 setAdvanced(false);
                 setNotice(null);
               }}
@@ -308,6 +266,7 @@ export default function AllocationPage() {
               onChange={(event) => {
                 setEndDate(event.target.value);
                 setAdvisory(null);
+                clearAllocationAdvisory(weekNo);
                 setAdvanced(false);
                 setNotice(null);
               }}
@@ -381,34 +340,6 @@ export default function AllocationPage() {
           </button>
         </div>
       </section>
-
-      {noticeEnabled && (
-        <section aria-labelledby="notices-title" className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
-          <h2 id="notices-title" className="text-lg font-semibold text-ink">Operational notices</h2>
-          <p className="mt-1 text-sm text-ink-soft">Copy a ready-to-send notice or open WhatsApp with its text prefilled.</p>
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            {[
-              { key: 'students', title: 'For students' },
-              { key: 'asateza', title: 'For Asateza' },
-            ].map(({ key, title }) => (
-              <article key={key} className="rounded-lg border border-ink/10 bg-paper p-4">
-                <h3 className="font-medium text-ink">{title}</h3>
-                <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink-soft">
-                  {noticeFor(key, currentSetup, advisory?.teachers ?? [])}
-                </pre>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button type="button" onClick={() => copyNotice(key)} className="inline-flex items-center gap-2 rounded-md border border-ink/20 bg-white px-3 py-2 text-sm hover:bg-pearl">
-                    <Clipboard className="h-4 w-4" aria-hidden="true" /> Copy notice
-                  </button>
-                  <button type="button" onClick={() => openWhatsApp(key)} className="inline-flex items-center gap-2 rounded-md bg-raihan-700 px-3 py-2 text-sm text-white hover:bg-raihan-500">
-                    <MessageCircle className="h-4 w-4" aria-hidden="true" /> Open WhatsApp
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
 
       {advisory && (
         <section aria-labelledby="advisory-title" className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">

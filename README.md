@@ -90,7 +90,9 @@ unknown paths to `index.html`.
   `Raihan_Solver_Working` stores the intermediate source, assigned status, and diagnostics.
   Unplaceable sessions are listed as lags, with a **Temporary teachers** workflow for saved
   subject/availability profiles in `Raihan_Temp_Teachers` and collision-checked assignments.
-- Student and Asateza notices can be copied or opened as prefilled WhatsApp messages.
+- The generated advisory is kept in the browser session while moving between Allocation and
+  Temporary teachers. Student and Asateza notices are prepared separately under **WhatsApp
+  broadcast**, using the saved week setup and the current session's teacher-day advisory.
 - After manually updating `JHS_Raw_Data`, rebuild the schedule. Alternatively,
   **Changes Done — Proceed** records the decision without requiring another upload.
 
@@ -103,8 +105,8 @@ app changes.
 
 - Add a print-ready `Allocations_Raihan` crosstab, class/teacher filters, full-screen view, and
   PDF export. Add more solver diagnostics and test allocations against full-year timetable data.
-- Add teacher-specific WhatsApp messages with day, periods, class, and room; support `wa.me`
-  dispatch and batched copy-ready broadcasts.
+- Add teacher-specific WhatsApp messages with day, periods, class, and room, and batched
+  copy-ready broadcasts.
 
 Subject color palette for the crosstab:
 

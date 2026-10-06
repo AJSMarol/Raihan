@@ -58,7 +58,7 @@ export const appRoutes = [
     path: '/whatsapp',
     label: 'WhatsApp broadcast',
     icon: Send,
-    roles: [ADMIN],
+    roles: [ADMIN, SCHEDULER],
     component: lazy(() => import('@/modules/whatsapp/WhatsAppPage')),
   },
   {
