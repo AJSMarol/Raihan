@@ -90,8 +90,14 @@ unknown paths to `index.html`.
   If that tab already has the exact JHS columns without `Week_No`, generation prepends the
   identifier column and preserves its existing rows.
   `Raihan_Solver_Working` stores the intermediate source, assigned status, and diagnostics.
-  Unplaceable sessions are listed as lags, with a **Temporary teachers** workflow for saved
-  subject/availability profiles in `Raihan_Temp_Teachers` and collision-checked assignments.
+  Unplaceable selected-class sessions are listed as lags. Temporary teacher profiles are entered
+  manually in `Raihan_Temp_Teachers`; `Availability_JSON` uses weekday keys and `Period N` values,
+  for example `{"Monday":["Period 1","Period 4"],"Wednesday":["Period 9"]}`. The app reads these
+  profiles and can collision-check compatible assignments.
+- **Raihan final timetable** displays the built Raihan schedule as a weekday/date x class x period
+  crosstab, with teacher or subject filters. Pending selected-class lags can be manually placed
+  into a free P1-P9 slot with a teacher already scheduled at Raihan that day; class and teacher
+  collisions are checked and the result is written to `Raihan_Allocations`.
 - The generated advisory is kept in the browser session while moving between Allocation and
   Temporary teachers. Student and Asateza notices are prepared separately under **WhatsApp
   broadcast**, using the saved week setup and the current session's teacher-day advisory.
@@ -103,10 +109,10 @@ app changes.
 
 ## Later phases and remaining work
 
-### Phase 2: Outputs and distribution (planned)
+### Phase 2: Outputs and distribution
 
-- Add a print-ready `Allocations_Raihan` crosstab, class/teacher filters, full-screen view, and
-  PDF export. Add more solver diagnostics and test allocations against full-year timetable data.
+- Add a print-ready `Allocations_Raihan` export, full-screen view, and PDF export. Add more solver
+  diagnostics and test allocations against full-year timetable data.
 - Add teacher-specific WhatsApp messages with day, periods, class, and room, and batched
   copy-ready broadcasts.
 

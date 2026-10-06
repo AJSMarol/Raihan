@@ -483,7 +483,7 @@ export default function AllocationPage() {
                 to={`/temp-teachers?week=${advisory.weekNo}`}
                 className="mt-4 inline-flex rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500"
               >
-                Add temporary teachers and resolve lags
+                Enter temporary teachers and resolve lags
               </Link>
             </section>
           )}
@@ -493,6 +493,13 @@ export default function AllocationPage() {
               If the source timetable changed, update JHS_Raw_Data and rebuild. The generated
               schedule replaces only this week’s rows; allocations for other weeks are preserved.
             </p>
+            <Link
+              to={`/outputs?week=${advisory.weekNo}`}
+              className="inline-flex items-center gap-2 rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500"
+            >
+              Open Raihan final timetable
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
             <button
               type="button"
               onClick={refreshAfterSheetUpdate}

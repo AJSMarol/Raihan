@@ -50,6 +50,14 @@ const ROUTES_ = {
     roles: ['admin', 'scheduler'],
     handler: handleAssignTemporary_,
   },
+  'allocation.getFinalWeek': {
+    roles: ['admin', 'scheduler'],
+    handler: handleGetFinalRaihanWeek_,
+  },
+  'allocation.assignLag': {
+    roles: ['admin', 'scheduler'],
+    handler: handleAssignRaihanLag_,
+  },
   'tempTeachers.list': {
     roles: ['admin', 'scheduler'],
     handler: handleListTemporaryTeachers_,
@@ -240,6 +248,119 @@ function handleAssignTemporary_(ctx, payload) {
       remaining: result.lags.length,
     });
     return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleGetFinalRaihanWeek_(ctx, payload) {
+  const weekNo = validateWeekNo_(payload.weekNo);
+  const week = getWeekRecord_(weekNo);
+  if (!week) throw apiError_('WEEK_NOT_CONFIGURED');
+  return getFinalRaihanWeek_(week);
+}
+
+function handleAssignRaihanLag_(ctx, payload) {
+  const weekNo = validateWeekNo_(payload.weekNo);
+  const rowNumber = Number(payload.rowNumber);
+  const teacherId = String(payload.teacherId || '').trim();
+  const period = normalizePeriod_(payload.period);
+  const week = getWeekRecord_(weekNo);
+  if (!week) throw apiError_('WEEK_NOT_CONFIGURED');
+  if (!Number.isInteger(rowNumber) || rowNumber < 2 || !teacherId ||
+      RAIHAN_PERIODS_.indexOf(period) < 0) {
+    throw apiError_('INVALID_PAYLOAD');
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const working = getOrCreateManagedSheet_('Raihan_Solver_Working', [
+      'Week_No', 'Status', 'Diagnostic', 'Source_Date', 'Source_Period', 'Class', 'Subject',
+      'Teacher_ID', 'Teacher_Name', 'Assigned_Date', 'Assigned_Period', 'Musanid_JSON', 'Source_Row_JSON',
+    ]);
+    const workingRow = working.getRange(rowNumber, 1, 1, 13).getValues()[0];
+    if (Number(workingRow[0]) !== weekNo || workingRow[1] !== 'LAG' ||
+        week.classes.indexOf(String(workingRow[5])) < 0) {
+      throw apiError_('LAG_NOT_AVAILABLE');
+    }
+
+    const allRows = working.getLastRow() < 2
+      ? []
+      : working.getRange(2, 1, working.getLastRow() - 1, 13).getValues();
+    const teacherRows = allRows.filter(function (row) {
+      return Number(row[0]) === weekNo && row[1] === 'RAIHAN' &&
+        String(row[7]) === teacherId && row[9];
+    });
+    if (!teacherRows.length) throw apiError_('RAIHAN_TEACHER_NOT_AVAILABLE');
+    const assignedDate = rawDateToIso_(teacherRows[0][9]);
+    if (!assignedDate || teacherRows.some(function (row) {
+      return rawDateToIso_(row[9]) !== assignedDate;
+    })) throw apiError_('RAIHAN_TEACHER_DAY_INVALID');
+
+    const allocation = SpreadsheetApp.getActive().getSheetByName('Raihan_Allocations');
+    if (!allocation || allocation.getLastRow() < 1) throw apiError_('SCHEDULE_NOT_GENERATED');
+    const outputHeaders = allocation.getRange(1, 1, 1, allocation.getLastColumn()).getValues()[0]
+      .map(function (value) { return String(value).trim().toLowerCase(); });
+    const outputDateColumn = outputHeaders.indexOf('date');
+    const outputPeriodColumn = outputHeaders.indexOf('period');
+    const outputClassColumn = outputHeaders.indexOf('class');
+    const outputSubjectColumn = outputHeaders.indexOf('subject');
+    const outputTeacherColumn = outputHeaders.indexOf('mufawwaz/department');
+    if ([outputDateColumn, outputPeriodColumn, outputClassColumn, outputSubjectColumn, outputTeacherColumn]
+        .some(function (index) { return index < 0; })) {
+      throw apiError_('SHEET_SCHEMA_MISCONFIGURED');
+    }
+    const allocationRows = allocation.getLastRow() < 2
+      ? []
+      : allocation.getRange(2, 1, allocation.getLastRow() - 1, outputHeaders.length).getValues();
+    const target = String(workingRow[5]);
+    allocationRows.forEach(function (row) {
+      if (Number(row[0]) !== weekNo || rawDateToIso_(row[outputDateColumn]) !== assignedDate ||
+          normalizePeriod_(row[outputPeriodColumn]) !== period) return;
+      if (String(row[outputClassColumn]) === target) throw apiError_('RAIHAN_CLASS_SLOT_OCCUPIED');
+      if (parseTeacherAssignments_(row[outputTeacherColumn]).some(function (teacher) {
+        return teacher.id === teacherId;
+      })) throw apiError_('RAIHAN_TEACHER_SLOT_OCCUPIED');
+    });
+
+    let sourceRow;
+    try {
+      sourceRow = JSON.parse(String(workingRow[12] || '[]'));
+    } catch (error) {
+      throw apiError_('SOLVER_DATA_MISCONFIGURED');
+    }
+    const sourceHeaders = outputHeaders.slice(1);
+    const sourcePeriodColumn = sourceHeaders.indexOf('period');
+    const sourceDateColumn = sourceHeaders.indexOf('date');
+    const sourceTeacherColumn = sourceHeaders.indexOf('mufawwaz/department');
+    if ([sourcePeriodColumn, sourceDateColumn, sourceTeacherColumn].some(function (index) { return index < 0; }) ||
+        sourceRow.length !== sourceHeaders.length) {
+      throw apiError_('SOLVER_DATA_MISCONFIGURED');
+    }
+    const chosenTeacher = teacherRows[0];
+    sourceRow[sourceDateColumn] = isoToSheetDate_(assignedDate);
+    sourceRow[sourcePeriodColumn] = formatPeriod_(period);
+    sourceRow[sourceTeacherColumn] = teacherId + ' ' + String(chosenTeacher[8]);
+    allocation.appendRow([weekNo].concat(sourceRow));
+
+    const solverRow = workingRow.slice();
+    solverRow[1] = 'MANUAL_ASSIGNED';
+    solverRow[2] = 'Manually assigned in Raihan crosstab';
+    solverRow[7] = teacherId;
+    solverRow[8] = String(chosenTeacher[8]);
+    solverRow[9] = assignedDate;
+    solverRow[10] = formatPeriod_(period);
+    solverRow[12] = JSON.stringify(sourceRow);
+    working.getRange(rowNumber, 1, 1, solverRow.length).setValues([solverRow]);
+    appendWeekLog_(weekNo, ctx.user.email, 'RAIHAN_LAG_ASSIGNED', {
+      className: target,
+      subject: workingRow[6],
+      teacherId: teacherId,
+      period: formatPeriod_(period),
+      date: assignedDate,
+    });
+    return getFinalRaihanWeek_(week);
   } finally {
     lock.releaseLock();
   }
@@ -1037,7 +1158,8 @@ function assignTemporaryTeachers_(week) {
             usedClasses[slot][className] = true;
             usedTempTeachers[slot][teacher.id] = true;
             working.getRange(entry.rowIndex, 2, 1, 10).setValues([[
-              'TEMP_ASSIGNED', '', row[3], formatPeriod_(row[4]), className, subject, row[7], row[8], date, formatPeriod_(period),
+              'TEMP_ASSIGNED', '', row[3], formatPeriod_(row[4]), className, subject,
+              teacher.id, teacher.name, date, formatPeriod_(period),
             ]]);
             assigned += 1;
             completed = true;
@@ -1055,6 +1177,103 @@ function assignTemporaryTeachers_(week) {
     });
   });
   return { weekNo: week.weekNo, assigned: assigned, lags: remaining };
+}
+
+function getFinalRaihanWeek_(week) {
+  const working = getOrCreateManagedSheet_('Raihan_Solver_Working', [
+    'Week_No', 'Status', 'Diagnostic', 'Source_Date', 'Source_Period', 'Class', 'Subject',
+    'Teacher_ID', 'Teacher_Name', 'Assigned_Date', 'Assigned_Period', 'Musanid_JSON', 'Source_Row_JSON',
+  ]);
+  const rows = working.getLastRow() < 2
+    ? []
+    : working.getRange(2, 1, working.getLastRow() - 1, 13).getValues();
+  const teachers = {};
+  const sessions = [];
+  const pending = [];
+  const allocation = SpreadsheetApp.getActive().getSheetByName('Raihan_Allocations');
+  if (!allocation || allocation.getLastRow() < 2) throw apiError_('SCHEDULE_NOT_GENERATED');
+  const outputHeaders = allocation.getRange(1, 1, 1, allocation.getLastColumn()).getValues()[0]
+    .map(function (value) { return String(value).trim().toLowerCase(); });
+  const dateColumn = outputHeaders.indexOf('date');
+  const periodColumn = outputHeaders.indexOf('period');
+  const classColumn = outputHeaders.indexOf('class');
+  const teacherColumn = outputHeaders.indexOf('mufawwaz/department');
+  if ([dateColumn, periodColumn, classColumn, teacherColumn].some(function (index) { return index < 0; })) {
+    throw apiError_('SHEET_SCHEMA_MISCONFIGURED');
+  }
+  const allocationRows = allocation.getRange(2, 1, allocation.getLastRow() - 1, outputHeaders.length).getValues();
+  const occupied = allocationRows.filter(function (row) {
+    return Number(row[0]) === week.weekNo;
+  }).map(function (row) {
+    return {
+      date: rawDateToIso_(row[dateColumn]),
+      period: normalizePeriod_(row[periodColumn]),
+      className: String(row[classColumn] || ''),
+      teacherIds: parseTeacherAssignments_(row[teacherColumn]).map(function (teacher) { return teacher.id; })
+        .concat(String(row[teacherColumn] || '').match(/TEMP_[A-Za-z0-9-]+/g) || []),
+    };
+  }).filter(function (slot) { return slot.date && slot.period; });
+
+  rows.forEach(function (row, index) {
+    if (Number(row[0]) !== week.weekNo) return;
+    const status = String(row[1] || '');
+    const teacherId = String(row[7] || '');
+    const teacherName = String(row[8] || '');
+    const assignedDate = rawDateToIso_(row[9]);
+    const period = normalizePeriod_(row[10]);
+    const className = String(row[5] || '');
+    const subject = String(row[6] || '');
+    if (status === 'RAIHAN') {
+      if (!teachers[teacherId]) {
+        teachers[teacherId] = {
+          teacherId: teacherId,
+          teacherName: teacherName,
+          date: assignedDate,
+          day: rawDateToWeekday_(assignedDate),
+        };
+      }
+    }
+    if (['RAIHAN', 'TEMP_ASSIGNED', 'MANUAL_ASSIGNED'].indexOf(status) >= 0 &&
+        assignedDate && period) {
+      sessions.push({
+        status: status,
+        date: assignedDate,
+        day: rawDateToWeekday_(assignedDate),
+        period: formatPeriod_(period),
+        className: className,
+        subject: subject,
+        teacherId: teacherId,
+        teacherName: teacherName,
+      });
+    }
+    if (status === 'LAG' && week.classes.indexOf(className) >= 0) {
+      pending.push({
+        rowNumber: index + 2,
+        date: rawDateToIso_(row[3]),
+        sourcePeriod: formatPeriod_(row[4]),
+        className: className,
+        subject: subject,
+        diagnostic: String(row[2] || ''),
+      });
+    }
+  });
+
+  return {
+    weekNo: week.weekNo,
+    startDate: week.startDate,
+    endDate: week.endDate,
+    classes: week.classes,
+    teachers: Object.keys(teachers).map(function (id) { return teachers[id]; })
+      .filter(function (teacher) { return teacher.teacherId && teacher.date; })
+      .sort(function (a, b) {
+        return a.day.localeCompare(b.day) ||
+          a.teacherName.localeCompare(b.teacherName) ||
+          a.teacherId.localeCompare(b.teacherId);
+      }),
+    sessions: sessions,
+    pending: pending,
+    occupied: occupied,
+  };
 }
 
 function rawDateToIso_(value) {

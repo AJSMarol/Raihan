@@ -1,41 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { AlertCircle, Check, Loader2, Save } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { AlertCircle, Check, Loader2, RefreshCw } from 'lucide-react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
-
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const PERIODS = Array.from({ length: 9 }, (_, index) => `Period ${index + 1}`);
-
-function normalizePeriodLabel(value) {
-  const match = String(value || '').trim().match(/^(?:P|Period)\s*(\d+)$/i);
-  return match ? `Period ${Number(match[1])}` : '';
-}
-
-function emptyProfile() {
-  return {
-    id: '',
-    name: '',
-    phone: '',
-    subjects: '',
-    availability: Object.fromEntries(DAYS.map((day) => [day, []])),
-  };
-}
 
 export default function TempTeacherGridPage() {
   const [searchParams] = useSearchParams();
   const weekNo = Number(searchParams.get('week')) || null;
   const [profiles, setProfiles] = useState([]);
-  const [profile, setProfile] = useState(emptyProfile);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
   const [assignmentResult, setAssignmentResult] = useState(null);
-  const paintMode = useRef(null);
 
-  const loadProfiles = async () => {
-    setLoading(true);
+  const loadProfiles = async (showSpinner = true) => {
+    if (showSpinner) setRefreshing(true);
     setError(null);
     try {
       const result = await apiCall('tempTeachers.list');
@@ -45,87 +25,13 @@ export default function TempTeacherGridPage() {
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadProfiles();
+    loadProfiles(false);
   }, []);
-
-  useEffect(() => {
-    const stopPainting = () => { paintMode.current = null; };
-    window.addEventListener('pointerup', stopPainting);
-    window.addEventListener('pointercancel', stopPainting);
-    return () => {
-      window.removeEventListener('pointerup', stopPainting);
-      window.removeEventListener('pointercancel', stopPainting);
-    };
-  }, []);
-
-  const subjectList = useMemo(
-    () => profile.subjects.split(',').map((subject) => subject.trim()).filter(Boolean),
-    [profile.subjects],
-  );
-
-  const selectProfile = (saved) => {
-    setProfile({
-      id: saved.id,
-      name: saved.name,
-      phone: saved.phone || '',
-      subjects: saved.subjects.join(', '),
-      availability: Object.fromEntries(
-        DAYS.map((day) => [
-          day,
-          Array.isArray(saved.availability[day])
-            ? saved.availability[day].map(normalizePeriodLabel).filter(Boolean)
-            : [],
-        ]),
-      ),
-    });
-    setMessage(null);
-    setAssignmentResult(null);
-  };
-
-  const setPeriodAvailability = (day, period, available) => {
-    setProfile((current) => {
-      const periods = current.availability[day] || [];
-      if (periods.includes(period) === available) return current;
-      return {
-        ...current,
-        availability: {
-          ...current.availability,
-          [day]: available
-            ? [...periods, period].sort((a, b) => PERIODS.indexOf(a) - PERIODS.indexOf(b))
-            : periods.filter((value) => value !== period),
-        },
-      };
-    });
-  };
-
-  const saveProfile = async (event) => {
-    event.preventDefault();
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const result = await apiCall('tempTeachers.save', {
-        ...profile,
-        name: profile.name.trim(),
-        phone: profile.phone.trim(),
-        subjects: subjectList,
-      });
-      if (!result?.teacher?.id) throw new ApiError('BAD_RESPONSE');
-      setMessage(`${result.teacher.name}’s availability has been saved for reuse.`);
-      setProfile((current) => ({ ...current, id: result.teacher.id }));
-      await loadProfiles();
-    } catch (requestError) {
-      setError(
-        requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE,
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const assignLags = async () => {
     if (!weekNo) return;
@@ -158,8 +64,8 @@ export default function TempTeacherGridPage() {
           Temporary teachers
         </h1>
         <p className="mt-3 max-w-3xl text-ink-soft">
-          Save a teacher’s subjects and weekly availability once. The solver can reuse this
-          preference when assigning sessions that could not fit the regular timetable.
+          Enter temporary-teacher profiles directly in the <strong>Raihan_Temp_Teachers</strong>
+          sheet for now. Refresh the list below after editing the sheet.
         </p>
       </header>
 
@@ -174,22 +80,49 @@ export default function TempTeacherGridPage() {
         </p>
       )}
 
+      <section className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
+        <h2 className="text-lg font-semibold text-ink">Manual sheet entry</h2>
+        <p className="mt-2 text-sm text-ink-soft">
+          Use one row per temporary teacher. Enter valid JSON in <code>Subjects_JSON</code> and
+          <code> Availability_JSON</code>. Periods must be written as <code>Period 1</code> through
+          <code> Period 9</code>; omit days when the teacher is unavailable.
+        </p>
+        <div className="mt-4 overflow-x-auto rounded-md bg-lapis-900 p-4 text-sm text-white">
+          <p className="mb-2 font-medium">Availability_JSON example</p>
+          <pre className="whitespace-pre-wrap break-all">{'{"Monday":["Period 1","Period 4"],"Wednesday":["Period 9"]}'}</pre>
+        </div>
+        <p className="mt-3 text-sm text-ink-soft">
+          Example <code>Subjects_JSON</code>: <code>["Quran Kareem","Fiqh"]</code>. The sheet
+          columns are <code>Temp_ID</code>, <code>Name</code>, <code>Phone</code>,
+          <code> Subjects_JSON</code>, <code>Availability_JSON</code>, <code>Updated_At</code>,
+          <code> Updated_By</code>. For a new profile, set <code>Temp_ID</code> to a unique value
+          such as <code>TEMP_001</code>; Updated columns may be left blank.
+        </p>
+      </section>
+
       {weekNo && (
         <section className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
           <h2 className="text-lg font-semibold text-ink">Resolve Week {weekNo} lags</h2>
           <p className="mt-1 text-sm text-ink-soft">
-            Assign compatible unfilled sessions into saved availability. A class or temporary
-            teacher cannot be double-booked in the same slot.
+            Assign compatible pending sessions using the subjects and availability saved in the sheet.
           </p>
-          <button
-            type="button"
-            onClick={assignLags}
-            disabled={assigning || loading || profiles.length === 0}
-            className="mt-4 inline-flex items-center gap-2 rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {assigning && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-            {assigning ? 'Assigning sessions…' : 'Assign available temporary teachers'}
-          </button>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={assignLags}
+              disabled={assigning || loading || profiles.length === 0}
+              className="inline-flex items-center gap-2 rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {assigning && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+              {assigning ? 'Assigning sessions…' : 'Assign available temporary teachers'}
+            </button>
+            <Link
+              to={`/outputs?week=${weekNo}`}
+              className="inline-flex items-center rounded-md border border-raihan-700 px-4 py-2 text-sm font-medium text-raihan-700 hover:bg-raihan-100"
+            >
+              Open Raihan final timetable
+            </Link>
+          </div>
           {assignmentResult && assignmentResult.lags.length > 0 && (
             <div className="mt-4 rounded-md bg-saffron-100 p-4 text-sm text-saffron-700">
               <p className="font-semibold">{assignmentResult.lags.length} session(s) still need coverage.</p>
@@ -205,141 +138,46 @@ export default function TempTeacherGridPage() {
         </section>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_2fr]">
-        <section className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold text-ink">Saved profiles</h2>
-            <button
-              type="button"
-              onClick={() => { setProfile(emptyProfile()); setMessage(null); setAssignmentResult(null); }}
-              className="rounded-md border border-ink/20 px-3 py-1.5 text-sm text-ink hover:bg-paper"
-            >
-              Add new
-            </button>
-          </div>
-          {loading ? (
-            <p className="mt-4 flex items-center gap-2 text-sm text-ink-soft">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading saved profiles…
-            </p>
-          ) : profiles.length === 0 ? (
-            <p className="mt-4 text-sm text-ink-soft">No temporary teacher profiles saved yet.</p>
-          ) : (
-            <ul className="mt-4 space-y-2">
-              {profiles.map((saved) => (
-                <li key={saved.id}>
-                  <button
-                    type="button"
-                    onClick={() => selectProfile(saved)}
-                    className={`w-full rounded-md border px-3 py-2 text-start text-sm ${
-                      profile.id === saved.id ? 'border-raihan-500 bg-raihan-100 text-raihan-700' : 'border-ink/15 hover:bg-paper'
-                    }`}
-                  >
-                    <span className="block font-medium">{saved.name}</span>
-                    <span className="block text-xs text-ink-soft">{saved.subjects.join(', ')}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <form onSubmit={saveProfile} className="space-y-6 rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
+      <section className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-ink">{profile.id ? 'Edit availability' : 'Temporary teacher details'}</h2>
-            <p className="mt-1 text-sm text-ink-soft">Saved preferences remain available for future weeks.</p>
+            <h2 className="text-lg font-semibold text-ink">Profiles currently loaded from the sheet</h2>
+            <p className="mt-1 text-sm text-ink-soft">After editing Raihan_Temp_Teachers, refresh to load the changes.</p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-medium text-ink">
-              Teacher name
-              <input
-                required
-                value={profile.name}
-                onChange={(event) => setProfile((current) => ({ ...current, name: event.target.value }))}
-                className="mt-1.5 block w-full rounded-md border border-ink/20 px-3 py-2"
-              />
-            </label>
-            <label className="text-sm font-medium text-ink">
-              Phone (optional)
-              <input
-                type="tel"
-                value={profile.phone}
-                onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))}
-                className="mt-1.5 block w-full rounded-md border border-ink/20 px-3 py-2"
-              />
-            </label>
-            <label className="text-sm font-medium text-ink sm:col-span-2">
-              Subjects (comma-separated)
-              <input
-                required
-                value={profile.subjects}
-                onChange={(event) => setProfile((current) => ({ ...current, subjects: event.target.value }))}
-                placeholder="Quran Kareem, Fiqh"
-                className="mt-1.5 block w-full rounded-md border border-ink/20 px-3 py-2"
-              />
-            </label>
-          </div>
-
-          <fieldset>
-            <legend className="text-sm font-medium text-ink">Weekly availability · click free periods</legend>
-            <div className="mt-3 overflow-x-auto">
-              <table className="min-w-full border-collapse text-center text-xs">
-                <thead>
-                  <tr>
-                    <th className="p-2 text-start font-medium text-ink-soft">Day</th>
-                    {PERIODS.map((period) => <th key={period} className="p-2 font-medium text-ink-soft">{period}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {DAYS.map((day) => (
-                    <tr key={day} className="border-t border-ink/10">
-                      <th className="whitespace-nowrap p-2 text-start font-medium text-ink">{day}</th>
-                      {PERIODS.map((period) => {
-                        const checked = (profile.availability[day] || []).includes(period);
-                        return (
-                          <td key={period} className="p-1">
-                            <button
-                              type="button"
-                              aria-label={`${day} ${period} ${checked ? 'available' : 'unavailable'}`}
-                              aria-pressed={checked}
-                              onPointerDown={() => { paintMode.current = !checked; setPeriodAvailability(day, period, !checked); }}
-                              onPointerEnter={() => {
-                                if (paintMode.current !== null) setPeriodAvailability(day, period, paintMode.current);
-                              }}
-                              onPointerUp={() => { paintMode.current = null; }}
-                              onClick={(event) => {
-                                if (event.detail === 0) setPeriodAvailability(day, period, !checked);
-                              }}
-                              className={`h-8 w-8 touch-none select-none rounded-md border ${
-                                checked ? 'border-raihan-600 bg-raihan-100 text-raihan-700' : 'border-ink/15 hover:bg-paper'
-                              }`}
-                            >
-                              {checked ? '✓' : ''}
-                            </button>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </fieldset>
-
           <button
-            type="submit"
-            disabled={
-              saving ||
-              !profile.name.trim() ||
-              subjectList.length === 0 ||
-              !DAYS.some((day) => profile.availability[day]?.length)
-            }
-            className="inline-flex items-center gap-2 rounded-md bg-lapis-600 px-4 py-2 text-sm font-medium text-white hover:bg-lapis-700 disabled:cursor-not-allowed disabled:opacity-50"
+            type="button"
+            onClick={() => loadProfiles()}
+            disabled={refreshing}
+            className="inline-flex shrink-0 items-center gap-2 rounded-md border border-ink/20 px-3 py-2 text-sm hover:bg-paper disabled:opacity-50"
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-            {saving ? 'Saving preferences…' : 'Save teacher preferences'}
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            Refresh list
           </button>
-        </form>
-      </div>
+        </div>
+        {loading ? (
+          <p role="status" className="mt-4 flex items-center gap-2 text-sm text-ink-soft">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Loading sheet profiles…
+          </p>
+        ) : profiles.length === 0 ? (
+          <p className="mt-4 text-sm text-ink-soft">No temporary teacher profiles found. Add a row in Raihan_Temp_Teachers.</p>
+        ) : (
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+            {profiles.map((teacher) => (
+              <li key={teacher.id} className="rounded-md border border-ink/10 p-3">
+                <p className="font-medium text-ink">{teacher.name} <span className="text-xs text-ink-soft">({teacher.id})</span></p>
+                <p className="mt-1 text-sm text-ink-soft">Subjects: {teacher.subjects.join(', ')}</p>
+                <p className="mt-1 text-xs text-ink-soft">
+                  Availability:{' '}
+                  {Object.entries(teacher.availability)
+                    .filter(([, periods]) => periods.length)
+                    .map(([day, periods]) => `${day}: ${periods.join(', ')}`)
+                    .join(' · ') || 'none'}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </section>
   );
 }

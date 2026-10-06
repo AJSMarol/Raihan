@@ -30,7 +30,12 @@ const ERROR_MESSAGES = {
   TEMP_TEACHER_PERIOD_REQUIRED:
     'The server did not recognize any selected periods. Confirm the latest Code.gs is deployed and select a period from 1 through 9.',
   SOLVER_DATA_MISCONFIGURED: 'The solver working data is invalid. Regenerate the schedule for this week.',
-  SCHEDULE_NOT_GENERATED: 'Analyze the saved week before assigning temporary teachers.',
+  SCHEDULE_NOT_GENERATED: 'Build the schedule for this week in Allocation first.',
+  LAG_NOT_AVAILABLE: 'This pending session was already assigned or is no longer available. Refresh the timetable.',
+  RAIHAN_TEACHER_NOT_AVAILABLE: 'Choose a teacher who is already scheduled to teach at Raihan this week.',
+  RAIHAN_TEACHER_DAY_INVALID: 'The selected teacher has inconsistent Raihan dates. Rebuild the schedule and try again.',
+  RAIHAN_CLASS_SLOT_OCCUPIED: 'That class already has a session in the selected Raihan period.',
+  RAIHAN_TEACHER_SLOT_OCCUPIED: 'That teacher is already scheduled in the selected Raihan period.',
   INVALID_PAYLOAD: 'The submitted data is invalid. Review it and try again.',
   INVALID_CLASS: 'One of the selected classes is no longer in JHS_Raw_Data. Reload and try again.',
   SERVER_ERROR: 'The server hit an error. Try again in a moment.',

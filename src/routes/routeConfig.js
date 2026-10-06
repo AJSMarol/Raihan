@@ -49,7 +49,7 @@ export const appRoutes = [
   },
   {
     path: '/outputs',
-    label: 'Exports & crosstab',
+    label: 'Raihan final timetable',
     icon: FileDown,
     roles: [ADMIN, SCHEDULER],
     component: lazy(() => import('@/modules/outputs/OutputsPage')),
