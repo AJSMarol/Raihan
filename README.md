@@ -28,10 +28,11 @@ operational notices. Print-ready outputs and later academic-operation features r
    Roles: `admin`, `scheduler`, `monitor`, `viewer`. Monitors need `assigned_class`.
 2. Add a `JHS_Raw_Data` tab with these required headers (other columns may be present):
    `Period`, `Class`, `Subject`, `Mufawwaz/Department`, and `Date`. `Mufawwaz/Department`
-   contains the teacher ID (4 or 8 digits) followed by the teacher name. `Number` is the teacher's
-   mobile number and is not used for schedule analysis. `Period` must be P1-P8 or 1-8. `Date`
-   may be a spreadsheet date, ISO `YYYY-MM-DD`, a Sheets date serial, or a slash/dot-separated
-   date string interpreted using the spreadsheet locale.
+   contains the teacher ID (4 or 8 digits) followed by the teacher name. Department-only values
+   are not treated as teacher assignments. `Number` is the teacher's mobile number and is not used
+   for schedule analysis. `Period` may be P1-P8, 1-8, or `Period 1`-`Period 8`; non-period labels
+   such as `(PT)` are skipped. `Date` may be a spreadsheet date, ISO `YYYY-MM-DD`, a Sheets date
+   serial, or a slash/dot-separated date string interpreted using the spreadsheet locale.
 3. Extensions > Apps Script. Paste `apps-script/Code.gs`; its `GOOGLE_CLIENT_ID` must match
    `googleClientId` in `src/config/publicConfig.js`.
 4. Deploy > New deployment > Web app. Execute as **Me**, access **Anyone**. Copy the `/exec` URL.

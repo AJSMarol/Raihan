@@ -1091,7 +1091,7 @@ function rawDateToWeekday_(isoDate) {
 }
 
 function normalizePeriod_(value) {
-  const match = String(value || '').trim().match(/^P?\s*(\d+)$/i);
+  const match = String(value || '').trim().match(/^(?:P|PERIOD)?\s*(\d+)$/i);
   const number = match ? Number(match[1]) : 0;
   return number >= 1 && number <= PERIODS_PER_DAY_ ? 'P' + number : '';
 }
