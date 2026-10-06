@@ -31,9 +31,11 @@ operational notices. Print-ready outputs and later academic-operation features r
    contains the teacher ID (4 or 8 digits) followed by the teacher name. Department-only values
    are not treated as teacher assignments. `Number` is the teacher's mobile number and is not used
    for schedule analysis. Campus `Period` may be P1-P10, 1-10, or `Period 1`-`Period 10`; `(PT)`
-   maps to P1. Raihan allocations and temporary-teacher availability use P1-P9. `Date` may be a
-   spreadsheet date, ISO `YYYY-MM-DD`, a Sheets date serial, or a slash/dot-separated date string
-   interpreted using the spreadsheet locale.
+   maps to `Period 1`. Periods in generated schedules and saved availability are stored as
+   `Period 1`, `Period 2`, etc. Campus schedules support `Period 1`-`Period 10`; Raihan and
+   temporary-teacher slots use `Period 1`-`Period 9`. `Date` may be a spreadsheet date, ISO
+   `YYYY-MM-DD`, a Sheets date serial, or a slash/dot-separated date string interpreted using the
+   spreadsheet locale.
 3. Extensions > Apps Script. Paste `apps-script/Code.gs`; its `GOOGLE_CLIENT_ID` must match
    `googleClientId` in `src/config/publicConfig.js`.
 4. Deploy > New deployment > Web app. Execute as **Me**, access **Anyone**. Copy the `/exec` URL.

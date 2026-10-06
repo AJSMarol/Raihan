@@ -4,7 +4,13 @@ import { AlertCircle, Check, Loader2, Save } from 'lucide-react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const PERIODS = Array.from({ length: 9 }, (_, index) => `P${index + 1}`);
+const PERIODS = Array.from({ length: 9 }, (_, index) => `Period ${index + 1}`);
+
+function normalizePeriodLabel(value) {
+  const match = String(value || '').trim().match(/^(?:P|Period)\s*(\d+)$/i);
+  return match ? `Period ${Number(match[1])}` : '';
+}
+
 function emptyProfile() {
   return {
     id: '',
@@ -68,7 +74,12 @@ export default function TempTeacherGridPage() {
       phone: saved.phone || '',
       subjects: saved.subjects.join(', '),
       availability: Object.fromEntries(
-        DAYS.map((day) => [day, Array.isArray(saved.availability[day]) ? saved.availability[day] : []]),
+        DAYS.map((day) => [
+          day,
+          Array.isArray(saved.availability[day])
+            ? saved.availability[day].map(normalizePeriodLabel).filter(Boolean)
+            : [],
+        ]),
       ),
     });
     setMessage(null);
@@ -110,7 +121,7 @@ export default function TempTeacherGridPage() {
     } catch (requestError) {
       setError(
         requestError instanceof ApiError && requestError.code === 'INVALID_PAYLOAD'
-          ? 'Apps Script rejected this profile. Check that the teacher name is not blank, at least one subject and period are selected, and the latest Code.gs (Raihan P1–P9 support) is deployed.'
+          ? 'Apps Script rejected this profile. Check the teacher name, subject, and availability. If Period 9 is selected, update the existing Apps Script deployment with the latest Code.gs (P1–P9 support).'
           : requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE,
       );
     } finally {

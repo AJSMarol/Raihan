@@ -688,7 +688,7 @@ function generateWeekSchedule_(week) {
     return ['KEPT', 'MOVED', 'RAIHAN'].indexOf(session.status) >= 0;
   });
   writeWeekOutput_(week.weekNo, sourceHeaders, columns, allocated);
-  writeSolverWorking_(week.weekNo, sessions, columns.date);
+  writeSolverWorking_(week.weekNo, sessions, columns.date, columns.period);
   const lags = sessions.filter(function (session) { return session.status === 'LAG'; })
     .map(function (session) {
       return {
@@ -778,6 +778,11 @@ function formatTeacherAssignments_(assignments) {
   }).join(' / ');
 }
 
+function formatPeriod_(value) {
+  const period = normalizePeriod_(value);
+  return period ? 'Period ' + period.slice(1) : '';
+}
+
 function addIsoDays_(isoDate, count) {
   const date = new Date(isoDate + 'T00:00:00Z');
   date.setUTCDate(date.getUTCDate() + count);
@@ -796,7 +801,7 @@ function writeWeekOutput_(weekNo, sourceHeaders, columns, sessions) {
   const output = sessions.map(function (session) {
     const row = session.row.slice();
     row[columns.date] = isoToSheetDate_(session.assignedDate);
-    row[columns.period] = session.assignedPeriod;
+    row[columns.period] = formatPeriod_(session.assignedPeriod);
     return [weekNo].concat(row);
   });
   replaceManagedRows_(sheet, headers, retained.concat(output));
@@ -830,7 +835,7 @@ function getWeekOutputSheet_(sourceHeaders) {
   return sheet;
 }
 
-function writeSolverWorking_(weekNo, sessions, dateColumn) {
+function writeSolverWorking_(weekNo, sessions, dateColumn, periodColumn) {
   const headers = [
     'Week_No', 'Status', 'Diagnostic', 'Source_Date', 'Source_Period', 'Class', 'Subject',
     'Teacher_ID', 'Teacher_Name', 'Assigned_Date', 'Assigned_Period', 'Musanid_JSON', 'Source_Row_JSON',
@@ -846,10 +851,11 @@ function writeSolverWorking_(weekNo, sessions, dateColumn) {
     const primary = session.primary || {};
     const sourceRow = session.row.slice();
     sourceRow[dateColumn] = session.date;
+    sourceRow[periodColumn] = formatPeriod_(session.period);
     return [
-      weekNo, session.status, session.diagnostic, session.date, session.period, session.className,
+      weekNo, session.status, session.diagnostic, session.date, formatPeriod_(session.period), session.className,
       session.subject, primary.id || '', primary.name || '', session.assignedDate,
-      session.assignedPeriod, JSON.stringify(session.musanids), JSON.stringify(sourceRow),
+      formatPeriod_(session.assignedPeriod), JSON.stringify(session.musanids), JSON.stringify(sourceRow),
     ];
   });
   replaceManagedRows_(sheet, headers, retained.concat(rows));
@@ -894,7 +900,13 @@ function getTemporaryTeachers_() {
       name: String(row[1]),
       phone: String(row[2] || ''),
       subjects: subjects,
-      availability: availability,
+      availability: WEEKDAYS_.reduce(function (normalized, day) {
+        const periods = Array.isArray(availability[day]) ? availability[day] : [];
+        normalized[day] = periods.map(normalizePeriod_).filter(function (period) {
+          return RAIHAN_PERIODS_.indexOf(period) >= 0;
+        });
+        return normalized;
+      }, {}),
     };
   });
 }
@@ -916,7 +928,9 @@ function validateTemporaryTeacher_(payload) {
   const normalizedAvailability = {};
   WEEKDAYS_.forEach(function (day) {
     const periods = Array.isArray(availability[day]) ? availability[day] : [];
-    normalizedAvailability[day] = periods.map(normalizePeriod_).filter(Boolean);
+    normalizedAvailability[day] = periods.map(normalizePeriod_).filter(function (period) {
+      return RAIHAN_PERIODS_.indexOf(period) >= 0;
+    }).map(formatPeriod_);
   });
   if (!WEEKDAYS_.some(function (day) { return normalizedAvailability[day].length > 0; })) {
     throw apiError_('INVALID_PAYLOAD');
@@ -1013,7 +1027,7 @@ function assignTemporaryTeachers_(week) {
                 ((usedClasses[slot] || {})[className]) ||
                 ((usedTempTeachers[slot] || {})[teacher.id])) continue;
             sourceRow[sourceColumns[dateColumn]] = isoToSheetDate_(date);
-            sourceRow[sourceColumns[periodColumn]] = period;
+            sourceRow[sourceColumns[periodColumn]] = formatPeriod_(period);
             sourceRow[sourceColumns[teacherColumn]] = teacher.id + ' ' + teacher.name;
             allocation.appendRow([week.weekNo].concat(sourceRow));
             if (!usedClasses[slot]) usedClasses[slot] = {};
@@ -1021,7 +1035,7 @@ function assignTemporaryTeachers_(week) {
             usedClasses[slot][className] = true;
             usedTempTeachers[slot][teacher.id] = true;
             working.getRange(entry.rowIndex, 2, 1, 10).setValues([[
-              'TEMP_ASSIGNED', '', row[3], row[4], className, subject, row[7], row[8], date, period,
+              'TEMP_ASSIGNED', '', row[3], formatPeriod_(row[4]), className, subject, row[7], row[8], date, formatPeriod_(period),
             ]]);
             assigned += 1;
             completed = true;
