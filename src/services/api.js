@@ -23,6 +23,12 @@ const ERROR_MESSAGES = {
   WEEK_CONFIG_MISCONFIGURED: 'This week’s saved setup is invalid. Contact an admin.',
   SHEET_SCHEMA_MISCONFIGURED: 'A Raihan system sheet has unexpected headers. Contact an admin.',
   TEMP_TEACHER_DATA_MISCONFIGURED: 'A saved temporary teacher profile is invalid. Check Raihan_Temp_Teachers.',
+  TEMP_TEACHER_NAME_REQUIRED: 'Enter a temporary teacher name before saving.',
+  TEMP_TEACHER_ID_INVALID: 'This saved profile has an unsupported ID. Choose Add new and save it as a new profile.',
+  TEMP_TEACHER_SUBJECT_REQUIRED: 'Add at least one subject before saving this profile.',
+  TEMP_TEACHER_AVAILABILITY_REQUIRED: 'Select at least one available period before saving this profile.',
+  TEMP_TEACHER_PERIOD_REQUIRED:
+    'The server did not recognize any selected periods. Confirm the latest Code.gs is deployed and select a period from 1 through 9.',
   SOLVER_DATA_MISCONFIGURED: 'The solver working data is invalid. Regenerate the schedule for this week.',
   SCHEDULE_NOT_GENERATED: 'Analyze the saved week before assigning temporary teachers.',
   INVALID_PAYLOAD: 'The submitted data is invalid. Review it and try again.',

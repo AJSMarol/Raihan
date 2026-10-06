@@ -120,9 +120,7 @@ export default function TempTeacherGridPage() {
       await loadProfiles();
     } catch (requestError) {
       setError(
-        requestError instanceof ApiError && requestError.code === 'INVALID_PAYLOAD'
-          ? 'Apps Script rejected this profile. Check the teacher name, subject, and availability. If Period 9 is selected, update the existing Apps Script deployment with the latest Code.gs (P1–P9 support).'
-          : requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE,
+        requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE,
       );
     } finally {
       setSaving(false);

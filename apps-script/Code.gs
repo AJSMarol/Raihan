@@ -921,9 +921,11 @@ function validateTemporaryTeacher_(payload) {
     ? payload.subjects.map(function (value) { return String(value || '').trim(); }).filter(Boolean)
     : [];
   const availability = payload.availability;
-  if (!name || !/^TEMP_[A-Za-z0-9-]+$/.test(id) || !subjects.length ||
-      !availability || typeof availability !== 'object') {
-    throw apiError_('INVALID_PAYLOAD');
+  if (!name) throw apiError_('TEMP_TEACHER_NAME_REQUIRED');
+  if (!/^TEMP_[A-Za-z0-9-]+$/.test(id)) throw apiError_('TEMP_TEACHER_ID_INVALID');
+  if (!subjects.length) throw apiError_('TEMP_TEACHER_SUBJECT_REQUIRED');
+  if (!availability || typeof availability !== 'object' || Array.isArray(availability)) {
+    throw apiError_('TEMP_TEACHER_AVAILABILITY_REQUIRED');
   }
   const normalizedAvailability = {};
   WEEKDAYS_.forEach(function (day) {
@@ -933,7 +935,7 @@ function validateTemporaryTeacher_(payload) {
     }).map(formatPeriod_);
   });
   if (!WEEKDAYS_.some(function (day) { return normalizedAvailability[day].length > 0; })) {
-    throw apiError_('INVALID_PAYLOAD');
+    throw apiError_('TEMP_TEACHER_PERIOD_REQUIRED');
   }
   return {
     id: id,
