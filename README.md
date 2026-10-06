@@ -94,10 +94,14 @@ unknown paths to `index.html`.
   manually in `Raihan_Temp_Teachers`; `Availability_JSON` uses weekday keys and `Period N` values,
   for example `{"Monday":["Period 1","Period 4"],"Wednesday":["Period 9"]}`. The app reads these
   profiles and can collision-check compatible assignments.
-- **Raihan final timetable** displays the built Raihan schedule as a weekday/date x class x period
-  crosstab, with teacher or subject filters. Pending selected-class lags can be manually placed
-  into a free P1-P9 slot with a teacher already scheduled at Raihan that day; class and teacher
-  collisions are checked and the result is written to `Raihan_Allocations`.
+- Before final placement, the Allocation page suggests each selected teacher's least-committed
+  Raihan day and lets the scheduler change it. Applying the choices stores them in
+  `Raihan_Teacher_Days` and rebuilds the week's schedule.
+- **Raihan final timetable** displays all weekdays in the configured window for one class as a
+  class x period crosstab, with teacher or subject filters. Drag a placed or pending subject card
+  to a free slot, then select an eligible regular or temporary teacher and subject. Class and
+  teacher collisions are checked and the result is written to `Raihan_Allocations`. A separate
+  Jamea campus table highlights known clashes.
 - The generated advisory is kept in the browser session while moving between Allocation and
   Temporary teachers. Student and Asateza notices are prepared separately under **WhatsApp
   broadcast**, using the saved week setup and the current session's teacher-day advisory.

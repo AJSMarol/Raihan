@@ -18,6 +18,16 @@ import {
 } from './allocationSession';
 
 const WEEK_NUMBERS = Array.from({ length: 41 }, (_, index) => index + 1);
+const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function weekdaysInRange(startDate, endDate) {
+  const days = new Set();
+  if (!startDate || !endDate) return [];
+  for (let date = new Date(`${startDate}T00:00:00Z`); date <= new Date(`${endDate}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1)) {
+    days.add(WEEKDAYS[(date.getUTCDay() + 6) % 7]);
+  }
+  return WEEKDAYS.filter((day) => days.has(day));
+}
 
 export default function AllocationPage() {
   const [weekNo, setWeekNo] = useState(getActiveAllocationWeek);
@@ -30,6 +40,8 @@ export default function AllocationPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [savingTeacherDays, setSavingTeacherDays] = useState(false);
+  const [teacherDays, setTeacherDays] = useState({});
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -144,10 +156,37 @@ export default function AllocationPage() {
       if (!Array.isArray(result?.teachers)) throw new ApiError('BAD_RESPONSE');
       setAdvisory(result);
       setAllocationAdvisory(weekNo, result);
+      setTeacherDays(Object.fromEntries(result.teachers.map((teacher) => [teacher.teacherId, teacher.raihanDay])));
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const applyTeacherDays = async () => {
+    if (!advisory?.teachers?.length) return;
+    setSavingTeacherDays(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await apiCall('relocation.saveTeacherDays', {
+        weekNo,
+        assignments: advisory.teachers.map((teacher) => ({
+          teacherId: teacher.teacherId,
+          day: teacherDays[teacher.teacherId] || teacher.raihanDay,
+        })),
+      });
+      const result = await apiCall('relocation.analyzeWeek', { weekNo });
+      if (!Array.isArray(result?.teachers)) throw new ApiError('BAD_RESPONSE');
+      setAdvisory(result);
+      setAllocationAdvisory(weekNo, result);
+      setTeacherDays(Object.fromEntries(result.teachers.map((teacher) => [teacher.teacherId, teacher.raihanDay])));
+      setNotice('Teacher Raihan days saved. The schedule was rebuilt using your choices.');
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
+    } finally {
+      setSavingTeacherDays(false);
     }
   };
 
@@ -164,6 +203,7 @@ export default function AllocationPage() {
       if (!Array.isArray(result?.teachers)) throw new ApiError('BAD_RESPONSE');
       setAdvisory(result);
       setAllocationAdvisory(weekNo, result);
+      setTeacherDays(Object.fromEntries(result.teachers.map((teacher) => [teacher.teacherId, teacher.raihanDay])));
       setNotice('JHS_Raw_Data refreshed. Review the updated advisory below.');
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
@@ -430,6 +470,46 @@ export default function AllocationPage() {
             </p>
           ) : (
             <div className="space-y-4">
+              <section className="rounded-lg border border-raihan-500/30 bg-raihan-50 p-4">
+                <h3 className="font-semibold text-ink">Confirm each teacher’s Raihan day</h3>
+                <p className="mt-1 text-sm text-ink-soft">
+                  Suggested days minimize that teacher’s local-campus commitments. Change any day before arranging the class timetable; schedule collisions are recalculated when you apply the choices.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {advisory.teachers.map((teacher) => (
+                    <label key={teacher.teacherId} className="rounded-md border border-ink/10 bg-white p-3 text-sm font-medium text-ink">
+                      {teacher.teacherName} <span className="text-xs text-ink-soft">({teacher.teacherId})</span>
+                      <select
+                        value={teacherDays[teacher.teacherId] || teacher.raihanDay}
+                        onChange={(event) => setTeacherDays((current) => ({
+                          ...current,
+                          [teacher.teacherId]: event.target.value,
+                        }))}
+                        disabled={savingTeacherDays || analyzing}
+                        className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-2 py-2"
+                      >
+                        {weekdaysInRange(advisory.startDate, advisory.endDate).map((day) => (
+                          <option key={day} value={day}>
+                            {day} · {teacher.homeCommitmentsByDay?.[day] || 0} campus commitment(s)
+                            {day === teacher.raihanDay ? ' · suggested' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={applyTeacherDays}
+                  disabled={savingTeacherDays || analyzing || !advisory.teachers.some(
+                    (teacher) => (teacherDays[teacher.teacherId] || teacher.raihanDay) !== teacher.raihanDay,
+                  )}
+                  className="mt-4 inline-flex items-center gap-2 rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingTeacherDays && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                  {savingTeacherDays ? 'Saving days and rebuilding…' : 'Apply teacher days and rebuild'}
+                </button>
+              </section>
               {advisory.teachers.map((teacher) => (
                 <article key={teacher.teacherId} className="rounded-lg border border-ink/10 p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">

@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertCircle, Check, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, Check, Loader2, RefreshCw, X } from 'lucide-react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
 import { getActiveAllocationWeek } from '@/modules/allocation/allocationSession';
 
 const WEEK_NUMBERS = Array.from({ length: 41 }, (_, index) => index + 1);
 const PERIODS = Array.from({ length: 9 }, (_, index) => `Period ${index + 1}`);
+const CAMPUS_PERIODS = Array.from({ length: 10 }, (_, index) => `Period ${index + 1}`);
 
 function displayDate(value) {
   if (!value) return '';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeZone: 'UTC' }).format(
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(
     new Date(`${value}T12:00:00Z`),
   );
+}
+
+function subjectKey(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[ʿʻ']/g, '').replace(/[^a-z0-9]/g, '');
 }
 
 export default function OutputsPage() {
@@ -21,10 +27,16 @@ export default function OutputsPage() {
   );
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [assigningRow, setAssigningRow] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [viewBy, setViewBy] = useState('subject');
   const [filter, setFilter] = useState('');
-  const [selections, setSelections] = useState({});
+  const [selectedClass, setSelectedClass] = useState('');
+  const [campusClassFilter, setCampusClassFilter] = useState('all');
+  const [dragged, setDragged] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
+  const [teacherId, setTeacherId] = useState('');
+  const [subject, setSubject] = useState('');
+  const [campusTargets, setCampusTargets] = useState({});
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
 
@@ -34,11 +46,16 @@ export default function OutputsPage() {
     try {
       const result = await apiCall('allocation.getFinalWeek', { weekNo: targetWeek });
       if (!Array.isArray(result?.sessions) || !Array.isArray(result?.pending) ||
-          !Array.isArray(result?.teachers) || !Array.isArray(result?.occupied)) {
+          !Array.isArray(result?.teachers) || !Array.isArray(result?.occupied) ||
+          !Array.isArray(result?.dates) || !Array.isArray(result?.campusSessions) ||
+          !Array.isArray(result?.classes) || !Array.isArray(result?.raihanSubjects)) {
         throw new ApiError('BAD_RESPONSE');
       }
       setData(result);
-      setSelections({});
+      setSelectedClass((current) => result.classes.includes(current) ? current : result.classes[0] || '');
+      setDropTarget(null);
+      setDragged(null);
+      setCampusTargets({});
     } catch (requestError) {
       setData(null);
       setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
@@ -51,81 +68,130 @@ export default function OutputsPage() {
     loadWeek(weekNo);
   }, [weekNo]);
 
-  const values = useMemo(() => {
+  const filterValues = useMemo(() => {
     if (!data) return [];
-    return [...new Set(data.sessions.map((session) =>
+    return [...new Set([...data.sessions, ...data.campusSessions].map((session) =>
       viewBy === 'teacher' ? session.teacherName : session.subject,
     ).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }, [data, viewBy]);
 
-  const visibleSessions = useMemo(() => (
-    data?.sessions.filter((session) => !filter ||
-      (viewBy === 'teacher' ? session.teacherName : session.subject) === filter) ?? []
-  ), [data, filter, viewBy]);
+  const selectedClassSessions = useMemo(() => (
+    data?.sessions.filter((session) => session.className === selectedClass) ?? []
+  ), [data, selectedClass]);
 
-  const days = useMemo(() => {
-    const byDate = {};
-    visibleSessions.forEach((session) => {
-      if (!byDate[session.date]) byDate[session.date] = { date: session.date, day: session.day, sessions: [] };
-      byDate[session.date].sessions.push(session);
-    });
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [visibleSessions]);
+  const cellSession = (date, period) =>
+    selectedClassSessions.find((session) => session.date === date && session.period === period);
+  const matchesGridFilter = (session) => !filter ||
+    (viewBy === 'teacher' ? session.teacherName : session.subject) === filter;
 
-  const availablePeriods = (pending, teacher) => PERIODS.filter((period) => {
-    const occupied = data?.occupied ?? [];
-    return !occupied.some((slot) => slot.date === teacher.date &&
-      slot.period === period.replace('Period ', 'P') &&
-      (slot.className === pending.className || slot.teacherIds.includes(teacher.teacherId)));
-  });
-
-  const setPendingSelection = (rowNumber, field, value) => {
-    setSelections((current) => ({
-      ...current,
-      [rowNumber]: { ...current[rowNumber], [field]: value },
-    }));
+  const eligibleTeachers = (target, selectedSubject) => {
+    if (!data || !target) return [];
+    return data.teachers.filter((teacher) => {
+      const teaches = (teacher.subjects || []).some((value) => value === '*' ||
+        subjectKey(value) === subjectKey(selectedSubject));
+      if (!teaches) return false;
+      if (teacher.temporary) {
+        const day = target.day;
+        const periods = teacher.availability?.[day] || [];
+        return periods.some((value) => `Period ${String(value).replace(/^P/i, '').replace(/^Period\s*/i, '')}` === target.period) &&
+          (teacher.availableDays || []).some((item) => item.date === target.date);
+      }
+      return teacher.date === target.date;
+    }).filter((teacher) => !(data.occupied || []).some((slot) =>
+      slot.date === target.date &&
+      slot.period === `P${target.period.replace('Period ', '')}` &&
+      slot.teacherIds.includes(teacher.teacherId) &&
+      !(dragged && dragged.status !== 'LAG' &&
+        slot.date === dragged.date &&
+        slot.period === `P${String(dragged.period).replace(/^P/i, '').replace(/^Period\s*/i, '')}` &&
+        slot.className === dragged.className &&
+        slot.teacherIds.includes(dragged.teacherId)),
+    ));
   };
 
-  const assignPending = async (pending) => {
-    const selection = selections[pending.rowNumber];
-    if (!selection?.teacherId || !selection.period) return;
-    setAssigningRow(pending.rowNumber);
+  const beginDrop = (event, target) => {
+    event.preventDefault();
+    if (!dragged) return;
+    const occupiedSession = cellSession(target.date, target.period);
+    if (occupiedSession && occupiedSession.rowNumber !== dragged.rowNumber) {
+      setError(`${target.day} ${target.period} is occupied by ${occupiedSession.subject} (${occupiedSession.teacherName}). Move that card to a free cell first; if the issue is teacher availability, choose a compatible temporary teacher or change the subject.`);
+      return;
+    }
+    const next = { ...target, rowNumber: dragged.rowNumber };
+    const preferredSubject = dragged.subject || '';
+    const validSubject = data.raihanSubjects.includes(preferredSubject) ? preferredSubject : data.raihanSubjects[0];
+    setDropTarget(next);
+    setSubject(validSubject);
+    const candidates = eligibleTeachers(next, validSubject);
+    setTeacherId(candidates[0]?.teacherId || '');
+    setError(candidates.length ? null : 'No available teacher fits this subject and slot. Change the subject or choose a different day/period; temporary teachers are included when their saved availability matches.');
+  };
+
+  const saveDrop = async () => {
+    if (!dropTarget || !teacherId || !subject) return;
+    setSaving(true);
     setError(null);
     setNotice(null);
     try {
       const result = await apiCall('allocation.assignLag', {
         weekNo,
-        rowNumber: pending.rowNumber,
-        teacherId: selection.teacherId,
-        period: selection.period,
+        rowNumber: dropTarget.rowNumber,
+        teacherId,
+        subject,
+        targetDate: dropTarget.date,
+        period: dropTarget.period,
       });
       if (!Array.isArray(result?.sessions) || !Array.isArray(result?.pending)) {
         throw new ApiError('BAD_RESPONSE');
       }
-      setData(result);
-      setSelections({});
-      setNotice(`Assigned ${pending.className} · ${pending.subject} to Raihan Period ${selection.period.replace('Period ', '')}.`);
+      setNotice(`Saved ${selectedClass} · ${subject} for ${dropTarget.day}, ${dropTarget.period}.`);
+      setDropTarget(null);
+      await loadWeek(weekNo);
     } catch (requestError) {
-      const errorMessage = requestError instanceof ApiError
-        ? requestError.message
-        : UNKNOWN_ERROR_MESSAGE;
-      if (requestError instanceof ApiError &&
-          ['LAG_NOT_AVAILABLE', 'RAIHAN_CLASS_SLOT_OCCUPIED', 'RAIHAN_TEACHER_SLOT_OCCUPIED'].includes(requestError.code)) {
-        await loadWeek(weekNo);
-      }
-      setError(errorMessage);
+      setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
     } finally {
-      setAssigningRow(null);
+      setSaving(false);
     }
   };
+
+  const resolveCampusClash = async (session) => {
+    const target = campusTargets[session.rowNumber] || {
+      date: session.date,
+      period: session.period,
+    };
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await apiCall('allocation.resolveCampusClash', {
+        weekNo,
+        rowNumber: session.rowNumber,
+        targetDate: target.date,
+        period: target.period,
+      });
+      setNotice(`Moved ${session.className} · ${session.subject} to ${displayDate(target.date)} ${target.period}.`);
+      await loadWeek(weekNo);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : UNKNOWN_ERROR_MESSAGE);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filteredCampusSessions = useMemo(() => (
+    (data?.campusSessions || []).filter((session) =>
+      (campusClassFilter === 'all' || session.className === campusClassFilter) &&
+      (!filter || (viewBy === 'teacher' ? session.teacherName : session.subject) === filter),
+    )
+  ), [campusClassFilter, data, filter, viewBy]);
 
   return (
     <section className="mx-auto max-w-7xl space-y-8">
       <header>
-        <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Final schedule</p>
-        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink">Raihan allocation crosstab</h1>
+        <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Allocation puzzle</p>
+        <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink">Raihan final timetable</h1>
         <p className="mt-3 max-w-4xl text-ink-soft">
-          Review the Raihan day-by-day timetable, filter it by teacher or subject, and manually place pending selected-class sessions into a free period with a teacher already coming to Raihan that day.
+          View all weekdays for one class. Drag a pending subject card into an open period, then choose a teacher already assigned to Raihan that day or a compatible temporary teacher. Only the ten Raihan subjects are placed; other lessons remain visible in the Jamea campus clash report.
         </p>
       </header>
 
@@ -144,188 +210,268 @@ export default function OutputsPage() {
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-sm font-medium text-ink">
             Week
-            <select
-              value={weekNo}
-              onChange={(event) => setWeekNo(Number(event.target.value))}
-              disabled={loading || assigningRow !== null}
-              className="mt-1.5 block min-w-40 rounded-md border border-ink/20 bg-white px-3 py-2"
-            >
+            <select value={weekNo} onChange={(event) => setWeekNo(Number(event.target.value))}
+              disabled={loading || saving} className="mt-1.5 block min-w-36 rounded-md border border-ink/20 bg-white px-3 py-2">
               {WEEK_NUMBERS.map((number) => <option key={number} value={number}>Week {number}</option>)}
             </select>
           </label>
           <label className="text-sm font-medium text-ink">
-            View and filter by
-            <select
-              value={viewBy}
-              onChange={(event) => { setViewBy(event.target.value); setFilter(''); }}
-              className="mt-1.5 block min-w-40 rounded-md border border-ink/20 bg-white px-3 py-2"
-            >
-              <option value="subject">Subject</option>
-              <option value="teacher">Teacher</option>
+            Class
+            <select value={selectedClass} onChange={(event) => setSelectedClass(event.target.value)}
+              disabled={!data} className="mt-1.5 block min-w-40 rounded-md border border-ink/20 bg-white px-3 py-2">
+              {(data?.classes || []).map((className) => <option key={className} value={className}>{className}</option>)}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-ink">
+            Show/filter by
+            <select value={viewBy} onChange={(event) => { setViewBy(event.target.value); setFilter(''); }}
+              className="mt-1.5 block min-w-36 rounded-md border border-ink/20 bg-white px-3 py-2">
+              <option value="subject">Subject</option><option value="teacher">Teacher</option>
             </select>
           </label>
           <label className="text-sm font-medium text-ink">
             {viewBy === 'teacher' ? 'Teacher' : 'Subject'}
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              className="mt-1.5 block min-w-48 rounded-md border border-ink/20 bg-white px-3 py-2"
-            >
-              <option value="">All {viewBy === 'teacher' ? 'teachers' : 'subjects'}</option>
-              {values.map((value) => <option key={value} value={value}>{value}</option>)}
+            <select value={filter} onChange={(event) => setFilter(event.target.value)}
+              className="mt-1.5 block min-w-44 rounded-md border border-ink/20 bg-white px-3 py-2">
+              <option value="">All</option>
+              {filterValues.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
-          <button
-            type="button"
-            onClick={() => loadWeek()}
-            disabled={loading || assigningRow !== null}
-            className="inline-flex items-center gap-2 rounded-md border border-ink/20 px-3 py-2 text-sm hover:bg-paper disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
-            Refresh
+          <button type="button" onClick={() => loadWeek()} disabled={loading || saving}
+            className="inline-flex items-center gap-2 rounded-md border border-ink/20 px-3 py-2 text-sm hover:bg-paper disabled:opacity-50">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" /> Refresh
           </button>
         </div>
 
-        {data && (
-          <p className="mt-5 text-sm text-ink-soft">
-            Week {data.weekNo} · {displayDate(data.startDate)} to {displayDate(data.endDate)} ·
-            {' '}{visibleSessions.length} Raihan session(s) · {data.pending.length} pending selected-class session(s)
-          </p>
-        )}
-
         {loading ? (
           <p role="status" className="mt-6 flex items-center gap-2 text-sm text-ink-soft">
-            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            Loading final Raihan timetable…
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> Loading five-day timetable…
           </p>
         ) : !data ? (
-          <p className="mt-6 rounded-md bg-paper p-4 text-sm text-ink-soft">
-            Build the schedule for this week in Allocation first.
-          </p>
+          <p className="mt-6 rounded-md bg-paper p-4 text-sm text-ink-soft">Build the schedule for this week in Allocation first.</p>
         ) : (
-          <div className="mt-6 space-y-8">
-            {days.length === 0 ? (
-              <p className="rounded-md bg-paper p-4 text-sm text-ink-soft">
-                No placed Raihan sessions are available for this view. Check pending sessions below.
-              </p>
-            ) : days.map(({ date, day, sessions }) => {
-              const classes = [...new Set(sessions.map((session) => session.className))].sort();
-              const bySlot = new Map(sessions.map((session) => [`${session.className}|${session.period}`, session]));
-              return (
-                <section key={date} aria-label={`${day}, ${displayDate(date)}`}>
-                  <h2 className="mb-3 text-lg font-semibold text-ink">{day} · {displayDate(date)}</h2>
-                  <div className="overflow-x-auto rounded-lg border border-ink/10">
-                    <table className="min-w-[900px] w-full border-collapse text-sm">
-                      <thead className="bg-paper">
-                        <tr>
-                          <th scope="col" className="sticky left-0 z-10 min-w-32 border-b border-ink/10 bg-paper p-3 text-start">Class</th>
-                          {PERIODS.map((period) => (
-                            <th scope="col" key={period} className="min-w-28 border-b border-ink/10 p-3 text-center">{period}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {classes.map((className) => (
-                          <tr key={className} className="border-b border-ink/10 last:border-0">
-                            <th scope="row" className="sticky left-0 z-10 bg-white p-3 text-start font-medium">{className}</th>
-                            {PERIODS.map((period) => {
-                              const session = bySlot.get(`${className}|${period}`);
-                              const primary = viewBy === 'teacher'
-                                ? session?.teacherName || session?.teacherId
-                                : session?.subject;
-                              const secondary = viewBy === 'teacher'
-                                ? session?.subject
-                                : session?.teacherName || session?.teacherId;
-                              return (
-                                <td key={period} className="border-s border-ink/5 p-2 text-center align-top">
-                                  {session ? (
-                                    <div className="rounded-md bg-raihan-100 px-2 py-1.5">
-                                      <span className="block font-medium text-raihan-800">{primary}</span>
-                                      <span className="block text-xs text-ink-soft">{secondary}</span>
-                                    </div>
-                                  ) : <span className="text-ink/20">—</span>}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              );
-            })}
+          <div className="mt-6 overflow-x-auto rounded-lg border border-ink/10">
+            <table className="min-w-[1050px] w-full border-collapse text-sm">
+              <thead className="bg-paper">
+                <tr>
+                  <th className="sticky left-0 z-10 min-w-28 border-b border-ink/10 bg-paper p-3 text-start">Period</th>
+                  {data.dates.map(({ date, day }) => (
+                    <th key={date} className="min-w-48 border-b border-ink/10 p-3 text-center">
+                      <span className="block">{day}</span><span className="text-xs font-normal text-ink-soft">{displayDate(date)}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PERIODS.map((period) => (
+                  <tr key={period} className="border-b border-ink/10 last:border-0">
+                    <th scope="row" className="sticky left-0 z-10 bg-white p-3 text-start font-medium">{period}</th>
+                    {data.dates.map(({ date, day }) => {
+                      const session = cellSession(date, period);
+                      const target = { date, day, period, className: selectedClass };
+                      const targetIsEditing = dropTarget?.date === date && dropTarget?.period === period;
+                      return (
+                        <td key={date} onDragOver={(event) => event.preventDefault()}
+                          onDrop={(event) => beginDrop(event, target)}
+                          className={`border-s border-ink/5 p-2 align-top ${!session ? 'bg-raihan-50/40' : ''}`}>
+                          {session ? (
+                            <div draggable={matchesGridFilter(session)} onDragStart={(event) => {
+                              event.dataTransfer.setData('text/plain', String(session.rowNumber));
+                              event.dataTransfer.effectAllowed = 'move';
+                              setDragged(session);
+                            }}
+                              onDragEnd={() => setDragged(null)}
+                              className={`rounded-md border p-2 ${
+                                matchesGridFilter(session)
+                                  ? 'cursor-grab border-raihan-500/30 bg-raihan-100 active:cursor-grabbing'
+                                  : 'border-ink/10 bg-paper opacity-60'
+                              }`}>
+                              {matchesGridFilter(session) ? (
+                                <>
+                                  <span className="block font-medium text-raihan-800">
+                                    {viewBy === 'teacher' ? session.teacherName : session.subject}
+                                  </span>
+                                  <span className="block text-xs text-ink-soft">
+                                    {viewBy === 'teacher' ? session.subject : session.teacherName}
+                                  </span>
+                                </>
+                              ) : <span className="text-xs text-ink-soft">Occupied · filtered out</span>}
+                            </div>
+                          ) : (
+                            <div aria-label={`Drop allocation in ${day} ${period}`}
+                              className={`grid min-h-14 place-items-center rounded-md border border-dashed text-xs ${
+                                targetIsEditing ? 'border-raihan-600 bg-raihan-100 text-raihan-800' : 'border-ink/15 text-ink/35'
+                              }`}>
+                              {targetIsEditing ? 'Drop here' : 'Drop card here'}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+
+        {dropTarget && data && (
+          <section aria-label="Confirm timetable placement" className="mt-5 rounded-lg border border-raihan-500/30 bg-raihan-50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-semibold text-ink">Place {dragged?.subject || 'session'} in {dropTarget.day} · {dropTarget.period}</h2>
+                <p className="text-sm text-ink-soft">{selectedClass} · {displayDate(dropTarget.date)}</p>
+              </div>
+              <button type="button" onClick={() => setDropTarget(null)} aria-label="Cancel placement" className="rounded p-1 hover:bg-white">
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <label className="text-sm font-medium text-ink">
+                Subject (change if needed)
+                <select value={subject} onChange={(event) => {
+                  setSubject(event.target.value);
+                  const choices = eligibleTeachers(dropTarget, event.target.value);
+                  setTeacherId(choices[0]?.teacherId || '');
+                  if (!choices.length) setError('No teacher is free in this slot for that subject. Choose another subject or slot, or add a compatible temporary teacher.');
+                  else setError(null);
+                }} className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-3 py-2">
+                  {data.raihanSubjects.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+              <label className="text-sm font-medium text-ink">
+                Teacher (temporary teachers included)
+                <select value={teacherId} onChange={(event) => setTeacherId(event.target.value)}
+                  className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-3 py-2">
+                  <option value="">Choose a teacher</option>
+                  {eligibleTeachers(dropTarget, subject).map((teacher) => (
+                    <option key={teacher.teacherId} value={teacher.teacherId}>
+                      {teacher.teacherName}{teacher.temporary ? ' · Temporary' : ` · ${teacher.day}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={saveDrop}
+                disabled={saving || !teacherId || !subject}
+                className="rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500 disabled:cursor-not-allowed disabled:opacity-50">
+                {saving ? 'Saving…' : 'Save placement'}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {data?.pending?.length > 0 && (
+          <section className="mt-8 rounded-lg border border-saffron-500/30 bg-saffron-100 p-4">
+            <h2 className="font-semibold text-saffron-800">Pending Raihan subjects · drag a card into the class grid</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {data.pending.filter((item) => item.className === selectedClass).map((pending) => (
+                <div key={pending.rowNumber} draggable onDragStart={(event) => {
+                  event.dataTransfer.setData('text/plain', String(pending.rowNumber));
+                  event.dataTransfer.effectAllowed = 'move';
+                  setDragged(pending);
+                }}
+                  onDragEnd={() => setDragged(null)}
+                  className="cursor-grab rounded-md border border-saffron-500/30 bg-white px-3 py-2 text-sm active:cursor-grabbing">
+                  <span className="block font-medium">{pending.subject}</span>
+                  <span className="block text-xs text-ink-soft">{pending.diagnostic}</span>
+                </div>
+              ))}
+              {!data.pending.some((item) => item.className === selectedClass) && (
+                <p className="text-sm text-ink-soft">No pending sessions for this class.</p>
+              )}
+            </div>
+          </section>
         )}
       </section>
 
-      {data?.pending?.length > 0 && (
-        <section className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
-          <h2 className="text-xl font-semibold text-ink">Pending sessions · manual placement</h2>
-          <p className="mt-2 text-sm text-ink-soft">
-            Choose a teacher already scheduled at Raihan, then a period free for both that teacher and the class on the teacher’s Raihan day.
-          </p>
-          <div className="mt-5 space-y-4">
-            {data.pending.map((pending) => {
-              const selection = selections[pending.rowNumber] || {};
-              const teacher = data.teachers.find((item) => item.teacherId === selection.teacherId);
-              const periods = teacher ? availablePeriods(pending, teacher) : [];
-              return (
-                <article key={pending.rowNumber} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 lg:grid-cols-[minmax(0,1fr)_minmax(12rem,1fr)_minmax(9rem,0.7fr)_auto] lg:items-center">
-                  <div>
-                    <p className="font-medium text-ink">{pending.className} · {pending.subject}</p>
-                    <p className="text-xs text-ink-soft">
-                      Source {pending.sourcePeriod || 'period unknown'} · {pending.diagnostic || 'Unplaced during schedule build'}
-                    </p>
-                  </div>
-                  <label className="text-sm font-medium text-ink">
-                    Raihan teacher
-                    <select
-                      value={selection.teacherId || ''}
-                      onChange={(event) => {
-                        const chosen = data.teachers.find((item) => item.teacherId === event.target.value);
-                        const available = chosen ? availablePeriods(pending, chosen) : [];
-                        setSelections((current) => ({
-                          ...current,
-                          [pending.rowNumber]: { teacherId: event.target.value, period: available[0] || '' },
-                        }));
-                      }}
-                      className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-2 py-2"
-                    >
-                      <option value="">Choose teacher</option>
-                      {data.teachers.map((item) => (
-                        <option key={item.teacherId} value={item.teacherId}>
-                          {item.teacherName} · {item.day}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="text-sm font-medium text-ink">
-                    Free period
-                    <select
-                      value={selection.period || ''}
-                      onChange={(event) => setPendingSelection(pending.rowNumber, 'period', event.target.value)}
-                      disabled={!teacher || periods.length === 0}
-                      className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-2 py-2 disabled:bg-paper"
-                    >
-                      <option value="">{teacher && periods.length ? 'Choose period' : 'No free periods'}</option>
-                      {periods.map((period) => <option key={period} value={period}>{period}</option>)}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => assignPending(pending)}
-                    disabled={!selection.teacherId || !selection.period || assigningRow !== null}
-                    className="rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {assigningRow === pending.rowNumber ? 'Assigning…' : 'Assign'}
-                  </button>
-                </article>
-              );
-            })}
+      <section className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm sm:p-7">
+        <h2 className="text-xl font-semibold text-ink">Jamea campus schedule and clashes</h2>
+        <p className="mt-1 text-sm text-ink-soft">
+          Red rows are unresolved campus collisions. Choose another date and period to move the
+          campus session; class and teacher clashes are checked before the move is saved.
+        </p>
+        <label className="mt-4 block max-w-xs text-sm font-medium text-ink">
+          Campus class
+          <select value={campusClassFilter} onChange={(event) => setCampusClassFilter(event.target.value)}
+            className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-3 py-2">
+            <option value="all">All classes</option>
+            {[...new Set((data?.campusSessions || []).map((session) => session.className))].sort()
+              .map((className) => <option key={className} value={className}>{className}</option>)}
+          </select>
+        </label>
+        {!filteredCampusSessions.length ? (
+          <p className="mt-4 text-sm text-ink-soft">No campus sessions or clashes for this class and filter.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-lg border border-ink/10">
+            <table className="min-w-[850px] w-full border-collapse text-sm">
+              <thead className="bg-paper">
+                <tr>
+                  {['Day / date','Period','Class','Subject','Teacher','Status'].map((heading) =>
+                    <th key={heading} className="border-b border-ink/10 p-3 text-start">{heading}</th>)}
+                  <th className="border-b border-ink/10 p-3 text-start">Resolve clash</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCampusSessions.map((session, index) => (
+                  <tr key={`${session.date}-${session.period}-${session.className}-${session.subject}-${index}`}
+                    className={session.hasCollision ? 'bg-saffron-100 text-saffron-800' : 'border-b border-ink/5'}>
+                    <td className="p-3">{session.day} · {displayDate(session.date)}</td>
+                    <td className="p-3">{session.period}</td>
+                    <td className="p-3">{session.className}</td>
+                    <td className="p-3">{session.subject}</td>
+                    <td className="p-3">{session.teacherName || session.teacherId || '—'}</td>
+                    <td className="p-3">{session.hasCollision ? 'Collision needs resolution' : session.status === 'MOVED' ? 'Moved from source slot' : 'Campus'}</td>
+                    <td className="p-3">
+                      {session.hasCollision ? (
+                        <div className="flex min-w-72 flex-wrap items-center gap-2">
+                          <select
+                            aria-label={`New day for ${session.className} ${session.subject}`}
+                            value={(campusTargets[session.rowNumber]?.date) || session.date}
+                            onChange={(event) => setCampusTargets((current) => ({
+                              ...current,
+                              [session.rowNumber]: {
+                                ...current[session.rowNumber],
+                                date: event.target.value,
+                                period: current[session.rowNumber]?.period || session.period,
+                              },
+                            }))}
+                            className="rounded-md border border-ink/20 bg-white px-2 py-1"
+                          >
+                            {data.dates.map(({ date, day }) => <option key={date} value={date}>{day} {displayDate(date)}</option>)}
+                          </select>
+                          <select
+                            aria-label={`New period for ${session.className} ${session.subject}`}
+                            value={(campusTargets[session.rowNumber]?.period) || session.period}
+                            onChange={(event) => setCampusTargets((current) => ({
+                              ...current,
+                              [session.rowNumber]: {
+                                ...current[session.rowNumber],
+                                date: current[session.rowNumber]?.date || session.date,
+                                period: event.target.value,
+                              },
+                            }))}
+                            className="rounded-md border border-ink/20 bg-white px-2 py-1"
+                          >
+                            {CAMPUS_PERIODS.map((period) => <option key={period} value={period}>{period}</option>)}
+                          </select>
+                          <button type="button" onClick={() => resolveCampusClash(session)}
+                            disabled={saving || (
+                              (campusTargets[session.rowNumber]?.date || session.date) === session.date &&
+                              (campusTargets[session.rowNumber]?.period || session.period) === session.period
+                            )}
+                            className="rounded-md bg-lapis-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                            Move campus session
+                          </button>
+                        </div>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </section>
-      )}
+        )}
+      </section>
     </section>
   );
 }
