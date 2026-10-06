@@ -65,7 +65,10 @@ const RAIHAN_WEEKS_SHEET_ = 'Raihan_Weeks';
 const RAIHAN_WEEK_LOGS_SHEET_ = 'Raihan_Week_Logs';
 const RAIHAN_TEMP_TEACHERS_SHEET_ = 'Raihan_Temp_Teachers';
 const WEEKDAYS_ = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const PERIODS_PER_DAY_ = 8;
+const SOURCE_PERIODS_PER_DAY_ = 10;
+const RAIHAN_PERIODS_ = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9'];
+const RAIHAN_PERIOD_ORDER_ = ['P2', 'P4', 'P6', 'P1', 'P3', 'P5', 'P7', 'P8', 'P9'];
+const CAMPUS_PERIOD_ORDER_ = RAIHAN_PERIOD_ORDER_.concat(['P10']);
 
 function doGet() {
   return json_({ ok: true, data: { service: 'raihan-timetable-ai', version: 1 } });
@@ -597,7 +600,6 @@ function generateWeekSchedule_(week) {
   sessions.forEach(function (session) {
     subjectCounts[session.subject] = (subjectCounts[session.subject] || 0) + 1;
   });
-  const periodOrder = ['P2', 'P4', 'P6', 'P1', 'P3', 'P5', 'P7', 'P8'];
   const byRarerSubject = function (a, b) {
     return subjectCounts[a.subject] - subjectCounts[b.subject] ||
       a.subject.localeCompare(b.subject) || a.className.localeCompare(b.className);
@@ -639,12 +641,12 @@ function generateWeekSchedule_(week) {
         if (day === session.day) continue;
         for (let dateIndex = 0; dateIndex < datesByDay[day].length; dateIndex += 1) {
           const date = datesByDay[day][dateIndex];
-          for (let i = 0; i < periodOrder.length; i += 1) {
-            if (!free(session, date, periodOrder[i])) continue;
+          for (let i = 0; i < CAMPUS_PERIOD_ORDER_.length; i += 1) {
+            if (!free(session, date, CAMPUS_PERIOD_ORDER_[i])) continue;
             session.assignedDate = date;
-            session.assignedPeriod = periodOrder[i];
+            session.assignedPeriod = CAMPUS_PERIOD_ORDER_[i];
             session.status = 'MOVED';
-            mark(session, date, periodOrder[i]);
+            mark(session, date, CAMPUS_PERIOD_ORDER_[i]);
             return;
           }
         }
@@ -663,19 +665,19 @@ function generateWeekSchedule_(week) {
         return;
       }
       const assignedCount = raihanPeriodsByTeacher[teacher.id] || 0;
-      if (assignedCount >= PERIODS_PER_DAY_) {
+      if (assignedCount >= RAIHAN_PERIOD_ORDER_.length) {
         session.status = 'LAG';
         session.diagnostic = 'Teacher Overbooked';
         return;
       }
       const date = datesByDay[teacher.raihanDay][0];
-      for (let i = 0; i < periodOrder.length; i += 1) {
-        if (!free(session, date, periodOrder[i])) continue;
+      for (let i = 0; i < RAIHAN_PERIOD_ORDER_.length; i += 1) {
+        if (!free(session, date, RAIHAN_PERIOD_ORDER_[i])) continue;
         session.assignedDate = date;
-        session.assignedPeriod = periodOrder[i];
+        session.assignedPeriod = RAIHAN_PERIOD_ORDER_[i];
         session.status = 'RAIHAN';
         raihanPeriodsByTeacher[teacher.id] = assignedCount + 1;
-        mark(session, date, periodOrder[i]);
+        mark(session, date, RAIHAN_PERIOD_ORDER_[i]);
         return;
       }
       session.status = 'LAG';
@@ -1004,8 +1006,8 @@ function assignTemporaryTeachers_(week) {
         for (let dateIndex = 0; dateIndex < dates.length && !completed; dateIndex += 1) {
           const date = dates[dateIndex];
           const available = teacher.availability[day] || [];
-          for (let periodNumber = 1; periodNumber <= PERIODS_PER_DAY_; periodNumber += 1) {
-            const period = 'P' + periodNumber;
+          for (let periodIndex = 0; periodIndex < RAIHAN_PERIODS_.length; periodIndex += 1) {
+            const period = RAIHAN_PERIODS_[periodIndex];
             const slot = date + '|' + period;
             if (available.indexOf(period) < 0 ||
                 ((usedClasses[slot] || {})[className]) ||
@@ -1091,9 +1093,11 @@ function rawDateToWeekday_(isoDate) {
 }
 
 function normalizePeriod_(value) {
-  const match = String(value || '').trim().match(/^(?:P|PERIOD)?\s*(\d+)$/i);
+  const text = String(value || '').trim();
+  if (/^\(\s*PT\s*\)$/i.test(text)) return 'P1';
+  const match = text.match(/^(?:P|PERIOD)?\s*(\d+)$/i);
   const number = match ? Number(match[1]) : 0;
-  return number >= 1 && number <= PERIODS_PER_DAY_ ? 'P' + number : '';
+  return number >= 1 && number <= SOURCE_PERIODS_PER_DAY_ ? 'P' + number : '';
 }
 
 /* ---- authentication -------------------------------------------------------------------- */

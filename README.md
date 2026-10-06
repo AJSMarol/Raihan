@@ -30,9 +30,10 @@ operational notices. Print-ready outputs and later academic-operation features r
    `Period`, `Class`, `Subject`, `Mufawwaz/Department`, and `Date`. `Mufawwaz/Department`
    contains the teacher ID (4 or 8 digits) followed by the teacher name. Department-only values
    are not treated as teacher assignments. `Number` is the teacher's mobile number and is not used
-   for schedule analysis. `Period` may be P1-P8, 1-8, or `Period 1`-`Period 8`; non-period labels
-   such as `(PT)` are skipped. `Date` may be a spreadsheet date, ISO `YYYY-MM-DD`, a Sheets date
-   serial, or a slash/dot-separated date string interpreted using the spreadsheet locale.
+   for schedule analysis. Campus `Period` may be P1-P10, 1-10, or `Period 1`-`Period 10`; `(PT)`
+   maps to P1. Raihan allocations and temporary-teacher availability use P1-P9. `Date` may be a
+   spreadsheet date, ISO `YYYY-MM-DD`, a Sheets date serial, or a slash/dot-separated date string
+   interpreted using the spreadsheet locale.
 3. Extensions > Apps Script. Paste `apps-script/Code.gs`; its `GOOGLE_CLIENT_ID` must match
    `googleClientId` in `src/config/publicConfig.js`.
 4. Deploy > New deployment > Web app. Execute as **Me**, access **Anyone**. Copy the `/exec` URL.
@@ -80,7 +81,8 @@ unknown paths to `index.html`.
 - The solver chooses each affected primary teacher's least-committed weekday, moves that
   teacher's non-relocating sessions from the day to other open class/teacher slots, then
   consolidates selected-class sessions onto that one Raihan weekday. Subject groups with fewer
-  sessions are attempted first; Raihan placement prefers P2/P4/P6 before other periods.
+  sessions are attempted first; Raihan placement prefers P2/P4/P6 before other periods and uses
+  P1-P9. Displaced campus sessions may also use P10.
 - Generated rows are written to `Raihan_Allocations`, which adds `Week_No` before the JHS
   columns. A build replaces only the selected week's rows and preserves other weeks.
   If that tab already has the exact JHS columns without `Week_No`, generation prepends the

@@ -4,7 +4,7 @@ import { AlertCircle, Check, Loader2, Save } from 'lucide-react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const PERIODS = Array.from({ length: 8 }, (_, index) => `P${index + 1}`);
+const PERIODS = Array.from({ length: 9 }, (_, index) => `P${index + 1}`);
 function emptyProfile() {
   return {
     id: '',
