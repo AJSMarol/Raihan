@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AlertCircle, Check, Loader2, RefreshCw, X } from 'lucide-react';
 import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
 import { getActiveAllocationWeek } from '@/modules/allocation/allocationSession';
@@ -78,14 +78,19 @@ export default function OutputsPage() {
   const selectedClassSessions = useMemo(() => (
     data?.sessions.filter((session) => session.className === selectedClass) ?? []
   ), [data, selectedClass]);
+  const weekdayCount = data?.dates.filter(({ day }) =>
+    ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'].includes(day),
+  ).length || 0;
 
   const cellSession = (date, period) =>
     selectedClassSessions.find((session) => session.date === date && session.period === period);
   const matchesGridFilter = (session) => !filter ||
     (viewBy === 'teacher' ? session.teacherName : session.subject) === filter;
 
-  const eligibleTeachers = (target, selectedSubject) => {
+  const eligibleTeachers = (target, selectedSubject, movingSession) => {
     if (!data || !target) return [];
+    const moving = movingSession || dragged || [...data.sessions, ...data.pending]
+      .find((item) => item.rowNumber === dropTarget?.rowNumber);
     return data.teachers.filter((teacher) => {
       const teaches = (teacher.subjects || []).some((value) => value === '*' ||
         subjectKey(value) === subjectKey(selectedSubject));
@@ -101,31 +106,72 @@ export default function OutputsPage() {
       slot.date === target.date &&
       slot.period === `P${target.period.replace('Period ', '')}` &&
       slot.teacherIds.includes(teacher.teacherId) &&
-      !(dragged && dragged.status !== 'LAG' &&
-        slot.date === dragged.date &&
-        slot.period === `P${String(dragged.period).replace(/^P/i, '').replace(/^Period\s*/i, '')}` &&
-        slot.className === dragged.className &&
-        slot.teacherIds.includes(dragged.teacherId)),
+      !(moving && moving.status !== 'LAG' &&
+        slot.date === moving.date &&
+        slot.period === `P${String(moving.period).replace(/^P/i, '').replace(/^Period\s*/i, '')}` &&
+        slot.className === moving.className &&
+        slot.teacherIds.includes(moving.teacherId)),
     ));
+  };
+
+  const openPlacement = (item, target) => {
+    if (!item || !target) return;
+    const occupiedSession = cellSession(target.date, target.period);
+    if (occupiedSession && occupiedSession.rowNumber !== item.rowNumber) {
+      setError(`${target.day} ${target.period} is occupied by ${occupiedSession.subject} (${occupiedSession.teacherName}). Move that card to a free cell first; if the issue is teacher availability, choose a compatible temporary teacher or change the subject.`);
+      return;
+    }
+    const next = { ...target, rowNumber: item.rowNumber };
+    const preferredSubject = item.subject || '';
+    const validSubject = data.raihanSubjects.includes(preferredSubject) ? preferredSubject : data.raihanSubjects[0];
+    setDragged(item);
+    setDropTarget(next);
+    setSubject(validSubject);
+    const candidates = eligibleTeachers(next, validSubject, item);
+    setTeacherId(candidates[0]?.teacherId || '');
+    setError(candidates.length ? null : 'No available teacher fits this subject and slot. Change the subject or choose a different day/period; temporary teachers are included when their saved availability matches.');
   };
 
   const beginDrop = (event, target) => {
     event.preventDefault();
-    if (!dragged) return;
-    const occupiedSession = cellSession(target.date, target.period);
-    if (occupiedSession && occupiedSession.rowNumber !== dragged.rowNumber) {
-      setError(`${target.day} ${target.period} is occupied by ${occupiedSession.subject} (${occupiedSession.teacherName}). Move that card to a free cell first; if the issue is teacher availability, choose a compatible temporary teacher or change the subject.`);
+    if (dragged) openPlacement(dragged, target);
+  };
+
+  const updatePlacementTarget = (date, period) => {
+    const day = data.dates.find((entry) => entry.date === date)?.day || '';
+    const next = { ...dropTarget, date, day, period };
+    setDropTarget(next);
+    const occupiedSession = cellSession(date, period);
+    if (occupiedSession && occupiedSession.rowNumber !== next.rowNumber) {
+      setTeacherId('');
+      setError(`${day} ${period} is occupied by ${occupiedSession.subject} (${occupiedSession.teacherName}). Choose a free slot.`);
       return;
     }
-    const next = { ...target, rowNumber: dragged.rowNumber };
-    const preferredSubject = dragged.subject || '';
-    const validSubject = data.raihanSubjects.includes(preferredSubject) ? preferredSubject : data.raihanSubjects[0];
-    setDropTarget(next);
-    setSubject(validSubject);
-    const candidates = eligibleTeachers(next, validSubject);
-    setTeacherId(candidates[0]?.teacherId || '');
-    setError(candidates.length ? null : 'No available teacher fits this subject and slot. Change the subject or choose a different day/period; temporary teachers are included when their saved availability matches.');
+    const candidates = eligibleTeachers(next, subject);
+    setTeacherId((current) => candidates.some((teacher) => teacher.teacherId === current)
+      ? current
+      : candidates[0]?.teacherId || '');
+    setError(candidates.length ? null : 'No available teacher fits this subject and slot. Change the subject, slot or teacher; matching temporary-teacher availability is included.');
   };
+
+  const firstOpenTarget = () => {
+    for (const { date, day } of data.dates) {
+      for (const period of PERIODS) {
+        if (!cellSession(date, period)) return { date, day, period, className: selectedClass };
+      }
+    }
+    const firstDate = data.dates[0];
+    return firstDate ? { ...firstDate, period: PERIODS[0], className: selectedClass } : null;
+  };
+
+  const openPendingPlacement = (pending) => {
+    const target = firstOpenTarget();
+    if (target) openPlacement(pending, target);
+    else setError('No weekdays are available in this week’s saved relocation date range. Update the dates in Allocation and rebuild the schedule.');
+  };
+  const placementCellSession = dropTarget && cellSession(dropTarget.date, dropTarget.period);
+  const placementSlotOccupied = placementCellSession &&
+    placementCellSession.rowNumber !== dropTarget.rowNumber;
 
   const saveDrop = async () => {
     if (!dropTarget || !teacherId || !subject) return;
@@ -191,8 +237,19 @@ export default function OutputsPage() {
         <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Allocation puzzle</p>
         <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink">Raihan final timetable</h1>
         <p className="mt-3 max-w-4xl text-ink-soft">
-          View all weekdays for one class. Drag a pending subject card into an open period, then choose a teacher already assigned to Raihan that day or a compatible temporary teacher. Only the ten Raihan subjects are placed; other lessons remain visible in the Jamea campus clash report.
+          View all weekdays for one class. Click Edit / move on a placed card or choose a pending card’s slot, then select the date, period, subject and an eligible teacher. Drag-and-drop is also available. Only the ten Raihan subjects are placed; other lessons remain visible in the Jamea campus clash report.
         </p>
+        {data && (
+          <p className="mt-2 text-sm text-ink-soft">
+            Showing {data.dates.length} date(s) in the saved window, {displayDate(data.startDate)}–{displayDate(data.endDate)}.
+            {' '}Use <Link to="/allocation" className="font-medium text-raihan-700 underline">Allocation</Link> to adjust the date range and rebuild if weekdays are missing.
+          </p>
+        )}
+        {data && weekdayCount < 5 && (
+          <p role="alert" className="mt-2 rounded-md border border-saffron-500/40 bg-saffron-100 p-3 text-sm text-saffron-800">
+            Only {weekdayCount} Monday–Friday date(s) are included in this week’s saved range. Set the full Monday–Friday date range in Allocation and rebuild to show the complete timetable.
+          </p>
+        )}
       </header>
 
       {error && (
@@ -251,12 +308,12 @@ export default function OutputsPage() {
           <p className="mt-6 rounded-md bg-paper p-4 text-sm text-ink-soft">Build the schedule for this week in Allocation first.</p>
         ) : (
           <div className="mt-6 overflow-x-auto rounded-lg border border-ink/10">
-            <table className="min-w-[1050px] w-full border-collapse text-sm">
+            <table className="min-w-[760px] w-full table-fixed border-collapse text-sm xl:min-w-0">
               <thead className="bg-paper">
                 <tr>
                   <th className="sticky left-0 z-10 min-w-28 border-b border-ink/10 bg-paper p-3 text-start">Period</th>
                   {data.dates.map(({ date, day }) => (
-                    <th key={date} className="min-w-48 border-b border-ink/10 p-3 text-center">
+                    <th key={date} className="border-b border-ink/10 p-2 text-center sm:p-3">
                       <span className="block">{day}</span><span className="text-xs font-normal text-ink-soft">{displayDate(date)}</span>
                     </th>
                   ))}
@@ -281,7 +338,7 @@ export default function OutputsPage() {
                               setDragged(session);
                             }}
                               onDragEnd={() => setDragged(null)}
-                              className={`rounded-md border p-2 ${
+                              className={`rounded-md border p-1.5 sm:p-2 ${
                                 matchesGridFilter(session)
                                   ? 'cursor-grab border-raihan-500/30 bg-raihan-100 active:cursor-grabbing'
                                   : 'border-ink/10 bg-paper opacity-60'
@@ -294,6 +351,19 @@ export default function OutputsPage() {
                                   <span className="block text-xs text-ink-soft">
                                     {viewBy === 'teacher' ? session.subject : session.teacherName}
                                   </span>
+                                  <button type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openPlacement(session, {
+                                        date: session.date,
+                                        day: session.day,
+                                        period: session.period,
+                                        className: session.className,
+                                      });
+                                    }}
+                                    className="mt-2 rounded border border-raihan-700/30 bg-white px-2 py-1 text-xs font-medium text-raihan-800 hover:bg-raihan-50">
+                                    Edit / move
+                                  </button>
                                 </>
                               ) : <span className="text-xs text-ink-soft">Occupied · filtered out</span>}
                             </div>
@@ -326,7 +396,23 @@ export default function OutputsPage() {
                 <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </div>
-            <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto] lg:items-end">
+              <label className="text-sm font-medium text-ink">
+                Day / date
+                <select value={dropTarget.date} onChange={(event) => updatePlacementTarget(event.target.value, dropTarget.period)}
+                  className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-3 py-2">
+                  {data.dates.map(({ date, day }) => (
+                    <option key={date} value={date}>{day} · {displayDate(date)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm font-medium text-ink">
+                Period
+                <select value={dropTarget.period} onChange={(event) => updatePlacementTarget(dropTarget.date, event.target.value)}
+                  className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-3 py-2">
+                  {PERIODS.map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
               <label className="text-sm font-medium text-ink">
                 Subject (change if needed)
                 <select value={subject} onChange={(event) => {
@@ -352,7 +438,7 @@ export default function OutputsPage() {
                 </select>
               </label>
               <button type="button" onClick={saveDrop}
-                disabled={saving || !teacherId || !subject}
+                disabled={saving || !teacherId || !subject || placementSlotOccupied}
                 className="rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500 disabled:cursor-not-allowed disabled:opacity-50">
                 {saving ? 'Saving…' : 'Save placement'}
               </button>
@@ -362,7 +448,7 @@ export default function OutputsPage() {
 
         {data?.pending?.length > 0 && (
           <section className="mt-8 rounded-lg border border-saffron-500/30 bg-saffron-100 p-4">
-            <h2 className="font-semibold text-saffron-800">Pending Raihan subjects · drag a card into the class grid</h2>
+            <h2 className="font-semibold text-saffron-800">Pending Raihan subjects · choose a slot or drag a card into the grid</h2>
             <div className="mt-3 flex flex-wrap gap-2">
               {data.pending.filter((item) => item.className === selectedClass).map((pending) => (
                 <div key={pending.rowNumber} draggable onDragStart={(event) => {
@@ -374,6 +460,10 @@ export default function OutputsPage() {
                   className="cursor-grab rounded-md border border-saffron-500/30 bg-white px-3 py-2 text-sm active:cursor-grabbing">
                   <span className="block font-medium">{pending.subject}</span>
                   <span className="block text-xs text-ink-soft">{pending.diagnostic}</span>
+                  <button type="button" onClick={() => openPendingPlacement(pending)}
+                    className="mt-2 rounded border border-saffron-500/40 px-2 py-1 text-xs font-medium text-saffron-800 hover:bg-saffron-50">
+                    Choose slot
+                  </button>
                 </div>
               ))}
               {!data.pending.some((item) => item.className === selectedClass) && (

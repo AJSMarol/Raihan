@@ -97,11 +97,13 @@ unknown paths to `index.html`.
 - Before final placement, the Allocation page suggests each selected teacher's least-committed
   Raihan day and lets the scheduler change it. Applying the choices stores them in
   `Raihan_Teacher_Days` and rebuilds the week's schedule.
-- **Raihan final timetable** displays all weekdays in the configured window for one class as a
-  class x period crosstab, with teacher or subject filters. Drag a placed or pending subject card
-  to a free slot, then select an eligible regular or temporary teacher and subject. Class and
-  teacher collisions are checked and the result is written to `Raihan_Allocations`. A separate
-  Jamea campus table highlights known clashes.
+- **Raihan final timetable** displays all dates in the configured window for one class as a
+  class x period crosstab, with teacher or subject filters. Edit/move a placed card directly or
+  drag it to a free slot, then select its date, period, eligible regular or temporary teacher,
+  and subject. Pending cards also have a direct slot-selection action. The page reports when
+  fewer than five Monday-Friday dates are included; set the full date range in Allocation and
+  rebuild to show all five days. Class and teacher collisions are checked and the result is
+  written to `Raihan_Allocations`. A separate Jamea campus table highlights known clashes.
 - The generated advisory is kept in the browser session while moving between Allocation and
   Temporary teachers. Student and Asateza notices are prepared separately under **WhatsApp
   broadcast**, using the saved week setup and the current session's teacher-day advisory.
