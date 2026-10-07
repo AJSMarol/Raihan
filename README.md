@@ -2,9 +2,56 @@
 
 React (Vite) + Tailwind front end, Google Sheets + Apps Script back end, Google Sign-In.
 
-Google sign-in and role-based access are implemented. Phase 1 provides week-scoped relocation
-setup, source sanitization, a deterministic timetable allocation attempt, lag reporting, and
-operational notices. Print-ready outputs and later academic-operation features remain planned.
+Raihan Timetable AI helps schedulers move selected classes to Raihan without losing track of
+the local-campus timetable. It prioritizes Raihan subject placement, shows the resulting teacher
+and class conflicts at the local campus, and lets staff decide which campus periods to change.
+The app keeps the source timetable intact; approved changes are made in `JHS_Raw_Data` and
+checked by rebuilding. Authentication, week setup, allocation, the Raihan puzzle, and printable
+collision reporting are implemented. Further exports and academic-operation tools are future work.
+
+## Concept and developer workflow
+
+The key invariant is: **allocate Raihan first; report local-campus conflicts; never silently
+rewrite the source timetable.** `JHS_Raw_Data` is the source of truth. The solver writes
+week-scoped results to `Raihan_Allocations` and diagnostics to `Raihan_Solver_Working`.
+
+1. **Configure a week.** In Allocation, choose the date range and classes attending Raihan.
+   Save the setup before analyzing it.
+2. **Identify Raihan sessions and teachers.** Use only the configured classes and the supported
+   Raihan subject list. Normalize periods (including campus `(PT)` as Period 1), deduplicate
+   repeated class/subject/date/period records, and distinguish primary teachers from Musanids.
+3. **Choose teacher days.** Suggest the weekday with the fewest local-campus commitments. A
+   scheduler may override it. Keep the one-day preference, using a second Raihan day only when
+   required, with at most nine Raihan periods per day and two days per teacher.
+4. **Allocate Raihan before campus moves.** Reserve class and teacher slots for Raihan sessions
+   using P2/P4/P6 preference followed by the remaining Period 1-9 slots. Do not relocate or
+   delete local-campus rows to make this pass succeed.
+5. **Report conflicts for human action.** Compare every placed Raihan session against the source
+   timetable. Report (a) the same teacher booked at the local campus in that date/period and
+   (b) a selected Raihan class still booked locally at that date/period. Include source row,
+   teacher, date, period, class, subject, and collision reason. Make the report printable and
+   downloadable so schedulers can coordinate the local-campus changes.
+6. **Reconcile the source after approval.** Staff decide which local periods to shuffle, update
+   `JHS_Raw_Data`, and rebuild. The new analysis should retain all source rows and show whether
+   the collisions have cleared.
+7. **Resolve remaining Raihan lags and review.** Use the temporary-teacher availability and
+   Raihan final timetable tools where required; verify teacher/class collisions before accepting
+   manual placements.
+
+### Source-row filtering and performance
+
+Do **not** delete unrelated teachers or sessions from `JHS_Raw_Data` or a copied source sheet.
+Rows that appear unrelated at first may be essential: selected-class rows reveal campus lessons
+that must move when the class attends Raihan, and other-class rows reveal where a Raihan teacher
+is already teaching. Destructive filtering can hide exactly the conflicts the dashboard is meant
+to find.
+
+If full-sheet processing becomes slow, optimize with a **non-destructive, in-memory filter** after
+identifying the primary teachers assigned to selected-class Raihan subjects. Keep every valid
+row in the configured date window for (1) the selected classes, regardless of subject or teacher,
+and (2) every class taught by those Raihan teachers. Preserve the original sheet unchanged, keep
+all fields on retained rows, and test that both teacher and same-class collision counts match the
+unfiltered solver on representative data before enabling the optimization.
 
 ## 1. Google Cloud: OAuth client
 
@@ -76,7 +123,7 @@ unknown paths to `index.html`.
   key for saved relocation configuration and `Raihan_Week_Logs`.
 - Unique class names come from `JHS_Raw_Data`. Configuration is saved in `Raihan_Weeks`;
   `Raihan_Week_Logs` records setup, analysis, refresh, and proceed actions.
-- **Prioritize Raihan & build schedule** copies all valid source sessions in the date range into a
+- **Prioritize Raihan & build schedule** reads valid source sessions in the date range into a
   week-scoped working calculation, collapses repeated class/subject/date/period sessions, and
   detects assistants whose IDs begin `78652` as Musanid records. Those assistants are preserved
   in the teacher field but do not consume a primary-teacher slot.
@@ -123,7 +170,8 @@ app changes.
 
 ### Phase 2: Outputs and distribution
 
-- Add a print-ready `Allocations_Raihan` export, full-screen view, and PDF export. Add more solver
+- Add a print-ready `Allocations_Raihan` export and polished full-screen/PDF timetable output.
+  The local-campus collision report already supports printing and CSV download. Add more solver
   diagnostics and test allocations against full-year timetable data.
 - Add teacher-specific WhatsApp messages with day, periods, class, and room, and batched
   copy-ready broadcasts.
