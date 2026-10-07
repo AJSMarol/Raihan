@@ -84,7 +84,6 @@ const WEEKDAYS_ = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satu
 const SOURCE_PERIODS_PER_DAY_ = 10;
 const RAIHAN_PERIODS_ = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9'];
 const RAIHAN_PERIOD_ORDER_ = ['P2', 'P4', 'P6', 'P1', 'P3', 'P5', 'P7', 'P8', 'P9'];
-const CAMPUS_PERIOD_ORDER_ = RAIHAN_PERIOD_ORDER_.concat(['P10']);
 const RAIHAN_SUBJECTS_ = [
   'Adab', 'Akhbaar', 'Al-Lisān al-ʿArabī', 'English', 'Fiqh', 'Hikmat',
   'Quran Kareem', 'Sciences', 'Tamreen', 'Tawil',
@@ -203,6 +202,7 @@ function handleAnalyzeWeek_(ctx, payload) {
       lagCount: advisory.lags.length,
       allocatedRows: advisory.allocatedRows,
       alteredDayCount: advisory.alteredDayCount,
+      localCampusCollisionCount: advisory.localCampusCollisionCount,
     });
     return advisory;
   } finally {
@@ -402,8 +402,9 @@ function handleAssignRaihanLag_(ctx, payload) {
         ['RAIHAN', 'MANUAL_ASSIGNED'].indexOf(String(row[1])) >= 0 &&
         String(row[7]) === teacherId && row[9];
     });
-    const temporaryTeacher = getTemporaryTeacherById_(teacherId);
-    if (!temporaryTeacher && /^TEMP_/i.test(teacherId)) {
+    const isTemporaryTeacher = /^TEMP_/i.test(teacherId);
+    const temporaryTeacher = isTemporaryTeacher ? getTemporaryTeacherById_(teacherId) : null;
+    if (isTemporaryTeacher && !temporaryTeacher) {
       throw apiError_('TEMP_TEACHER_NOT_FOUND');
     }
     if (temporaryTeacher) teacherId = temporaryTeacher.id;
@@ -417,8 +418,8 @@ function handleAssignRaihanLag_(ctx, payload) {
       })) throw apiError_('TEMP_TEACHER_NOT_AVAILABLE');
     } else {
       if (!teacherRows.length) throw apiError_('RAIHAN_TEACHER_NOT_AVAILABLE');
-      if (teacherRows.some(function (row) {
-        return rawDateToIso_(row[9]) !== assignedDate;
+      if (!teacherRows.some(function (row) {
+        return rawDateToIso_(row[9]) === assignedDate;
       })) throw apiError_('RAIHAN_TEACHER_DAY_INVALID');
     }
     const subject = requestedSubject || String(workingRow[6]);
@@ -961,6 +962,16 @@ function generateWeekSchedule_(week) {
       }
     });
   });
+  Object.keys(teachers).forEach(function (teacherId) {
+    const teacher = teachers[teacherId];
+    sessions.forEach(function (session) {
+      if (session.selected || !teacher.classes[session.className]) return;
+      const alreadyCounted = session.assignments.some(function (assignment) {
+        return !assignment.isMusanid && assignment.id === teacherId;
+      });
+      if (!alreadyCounted) teacher.homeByDay[session.day] += 1;
+    });
+  });
 
   const teacherResults = {};
   const teacherDayOverrides = getRaihanTeacherDayOverrides_(week.weekNo);
@@ -974,31 +985,27 @@ function generateWeekSchedule_(week) {
     teacher.raihanDay = days.indexOf(teacherDayOverrides[id]) >= 0
       ? teacherDayOverrides[id]
       : suggestedDay;
-    teacher.displaced = teacher.homeSessions.filter(function (session) {
-      return session.day === teacher.raihanDay;
-    });
-    teacher.displaced.forEach(function (session) { session.status = 'TO_MOVE'; });
+    teacher.raihanDays = [];
     teacherResults[id] = teacher;
   });
 
-  const occupiedTeacher = {};
-  const occupiedClass = {};
+  const occupiedRaihanTeacher = {};
+  const occupiedRaihanClass = {};
   const slotKey = function (date, period) { return date + '|' + period; };
-  const mark = function (session, date, period) {
+  const markRaihan = function (session, date, period) {
     const key = slotKey(date, period);
-    if (!occupiedTeacher[key]) occupiedTeacher[key] = {};
-    if (!occupiedClass[key]) occupiedClass[key] = {};
-    if (session.primary) occupiedTeacher[key][session.primary.id] = true;
-    occupiedClass[key][session.className] = true;
+    if (!occupiedRaihanTeacher[key]) occupiedRaihanTeacher[key] = {};
+    if (!occupiedRaihanClass[key]) occupiedRaihanClass[key] = {};
+    if (session.primary) occupiedRaihanTeacher[key][session.primary.id] = true;
+    occupiedRaihanClass[key][session.className] = true;
   };
-  const free = function (session, date, period) {
+  const freeForRaihan = function (session, date, period) {
     const key = slotKey(date, period);
-    return (!session.primary || !(occupiedTeacher[key] || {})[session.primary.id]) &&
-      !(occupiedClass[key] || {})[session.className];
+    return (!session.primary || !(occupiedRaihanTeacher[key] || {})[session.primary.id]) &&
+      !(occupiedRaihanClass[key] || {})[session.className];
   };
   sessions.forEach(function (session) {
-    if (session.selected || session.status === 'TO_MOVE' || session.status === 'LAG') return;
-    mark(session, session.date, session.period);
+    if (session.selected) return;
     session.status = 'KEPT';
   });
 
@@ -1010,88 +1017,130 @@ function generateWeekSchedule_(week) {
     return subjectCounts[a.subject] - subjectCounts[b.subject] ||
       a.subject.localeCompare(b.subject) || a.className.localeCompare(b.className);
   };
-  const fixedCandidates = sessions.filter(function (session) {
-    return !session.selected && session.status !== 'TO_MOVE';
-  });
-  const fixedBySlot = {};
-  fixedCandidates.forEach(function (session) {
-    const key = slotKey(session.date, session.period);
-    if (!fixedBySlot[key]) fixedBySlot[key] = [];
-    fixedBySlot[key].push(session);
-  });
-  Object.keys(fixedBySlot).forEach(function (key) {
-    const slotSessions = fixedBySlot[key];
-    for (let i = 0; i < slotSessions.length; i += 1) {
-      for (let j = i + 1; j < slotSessions.length; j += 1) {
-        const left = slotSessions[i];
-        const right = slotSessions[j];
-        const classCollision = left.className === right.className;
-        const teacherCollision = left.primary && right.primary && left.primary.id === right.primary.id;
-        if (classCollision || teacherCollision) {
-          left.status = 'LAG';
-          right.status = 'LAG';
-          left.diagnostic = 'Period Collision';
-          right.diagnostic = 'Period Collision';
-        }
-      }
+  const placeRaihanSession = function (session, day) {
+    const date = datesByDay[day] && datesByDay[day][0];
+    if (!date) return false;
+    for (let i = 0; i < RAIHAN_PERIOD_ORDER_.length; i += 1) {
+      const period = RAIHAN_PERIOD_ORDER_[i];
+      if (!freeForRaihan(session, date, period)) continue;
+      session.assignedDate = date;
+      session.assignedPeriod = period;
+      session.status = 'RAIHAN';
+      markRaihan(session, date, period);
+      return true;
     }
+    return false;
+  };
+  sessions.filter(function (session) {
+    return session.selected && (!session.primary || !teacherResults[session.primary.id]);
+  }).forEach(function (session) {
+    session.status = 'LAG';
+    session.diagnostic = 'No Primary Teacher';
   });
-  fixedCandidates.filter(function (session) { return session.status === 'LAG'; })
-    .forEach(function (session) {
-      if (!session.diagnostic) session.diagnostic = 'Period Collision';
-    });
-  sessions.filter(function (session) { return session.status === 'TO_MOVE'; })
-    .sort(byRarerSubject).forEach(function (session) {
-      for (let dayIndex = 0; dayIndex < WEEKDAYS_.length; dayIndex += 1) {
-        const day = WEEKDAYS_[dayIndex];
-        if (day === session.day) continue;
-        for (let dateIndex = 0; dateIndex < datesByDay[day].length; dateIndex += 1) {
-          const date = datesByDay[day][dateIndex];
-          for (let i = 0; i < CAMPUS_PERIOD_ORDER_.length; i += 1) {
-            if (!free(session, date, CAMPUS_PERIOD_ORDER_[i])) continue;
-            session.assignedDate = date;
-            session.assignedPeriod = CAMPUS_PERIOD_ORDER_[i];
-            session.status = 'MOVED';
-            mark(session, date, CAMPUS_PERIOD_ORDER_[i]);
-            return;
-          }
-        }
+  Object.keys(teacherResults).sort().forEach(function (teacherId) {
+    const teacher = teacherResults[teacherId];
+    const teacherSessions = sessions.filter(function (session) {
+      return session.selected && session.primary && session.primary.id === teacherId;
+    }).sort(byRarerSubject);
+    const overflow = [];
+    let primaryDayCount = 0;
+    teacherSessions.forEach(function (session) {
+      if (primaryDayCount < RAIHAN_PERIOD_ORDER_.length &&
+          placeRaihanSession(session, teacher.raihanDay)) {
+        primaryDayCount += 1;
+      } else {
+        overflow.push(session);
       }
-      session.status = 'LAG';
-      session.diagnostic = 'Period Collision';
     });
-
-  const raihanPeriodsByTeacher = {};
-  sessions.filter(function (session) { return session.selected; })
-    .sort(byRarerSubject).forEach(function (session) {
-      const teacher = session.primary ? teacherResults[session.primary.id] : null;
-      if (!teacher || !teacher.raihanDay || !datesByDay[teacher.raihanDay].length) {
+    const secondaryDay = WEEKDAYS_.filter(function (day) {
+      return datesByDay[day].length && day !== teacher.raihanDay;
+    }).sort(function (a, b) {
+      return teacher.homeByDay[a] - teacher.homeByDay[b] ||
+        WEEKDAYS_.indexOf(a) - WEEKDAYS_.indexOf(b);
+    })[0] || '';
+    let secondaryDayCount = 0;
+    overflow.forEach(function (session) {
+      if (secondaryDayCount < RAIHAN_PERIOD_ORDER_.length &&
+          secondaryDay && placeRaihanSession(session, secondaryDay)) {
+        secondaryDayCount += 1;
+      } else {
         session.status = 'LAG';
-        session.diagnostic = 'No Single-Day Availability';
-        return;
+        session.diagnostic = teacherSessions.length > RAIHAN_PERIOD_ORDER_.length * 2
+          ? 'Teacher Exceeds Two Raihan Days'
+          : 'Raihan Class Period Collision';
       }
-      const assignedCount = raihanPeriodsByTeacher[teacher.id] || 0;
-      if (assignedCount >= RAIHAN_PERIOD_ORDER_.length) {
-        session.status = 'LAG';
-        session.diagnostic = 'Teacher Overbooked';
-        return;
-      }
-      const date = datesByDay[teacher.raihanDay][0];
-      for (let i = 0; i < RAIHAN_PERIOD_ORDER_.length; i += 1) {
-        if (!free(session, date, RAIHAN_PERIOD_ORDER_[i])) continue;
-        session.assignedDate = date;
-        session.assignedPeriod = RAIHAN_PERIOD_ORDER_[i];
-        session.status = 'RAIHAN';
-        raihanPeriodsByTeacher[teacher.id] = assignedCount + 1;
-        mark(session, date, RAIHAN_PERIOD_ORDER_[i]);
-        return;
-      }
-      session.status = 'LAG';
-      session.diagnostic = 'Period Collision';
     });
+    teacher.raihanDays = [];
+    if (primaryDayCount) teacher.raihanDays.push(teacher.raihanDay);
+    if (secondaryDayCount) teacher.raihanDays.push(secondaryDay);
+  });
 
   const allocated = sessions.filter(function (session) {
-    return ['KEPT', 'MOVED', 'RAIHAN'].indexOf(session.status) >= 0;
+    return ['KEPT', 'RAIHAN'].indexOf(session.status) >= 0;
+  });
+  const campusByTeacherSlot = {};
+  const campusByClassSlot = {};
+  sessions.filter(function (session) {
+    return !session.selected && session.status === 'KEPT';
+  }).forEach(function (session) {
+    const classKey = [session.className, session.date, session.period].join('|');
+    if (!campusByClassSlot[classKey]) campusByClassSlot[classKey] = [];
+    campusByClassSlot[classKey].push(session);
+    session.assignments.forEach(function (assignment) {
+      if (assignment.isMusanid) return;
+      const teacherKey = [assignment.id, session.date, session.period].join('|');
+      if (!campusByTeacherSlot[teacherKey]) campusByTeacherSlot[teacherKey] = [];
+      campusByTeacherSlot[teacherKey].push(session);
+    });
+  });
+  const localCampusCollisions = [];
+  sessions.filter(function (session) { return session.status === 'RAIHAN'; })
+    .forEach(function (session) {
+      const teacherKey = [session.primary.id, session.assignedDate, session.assignedPeriod].join('|');
+      const classKey = [session.className, session.assignedDate, session.assignedPeriod].join('|');
+      const campusMatches = {};
+      (campusByTeacherSlot[teacherKey] || []).forEach(function (campusSession) {
+        campusMatches[campusSession.key] = campusSession;
+      });
+      (campusByClassSlot[classKey] || []).forEach(function (campusSession) {
+        campusMatches[campusSession.key] = campusSession;
+      });
+      Object.keys(campusMatches).forEach(function (campusKey) {
+        const campusSession = campusMatches[campusKey];
+        const teacherCollision = campusSession.assignments.some(function (assignment) {
+          return !assignment.isMusanid && assignment.id === session.primary.id;
+        });
+        const classCollision = campusSession.className === session.className;
+        localCampusCollisions.push({
+          teacherId: session.primary.id,
+          teacherName: session.primary.name,
+          raihanDay: rawDateToWeekday_(session.assignedDate),
+          raihanDate: session.assignedDate,
+          raihanPeriod: formatPeriod_(session.assignedPeriod),
+          raihanClass: session.className,
+          raihanSubject: session.subject,
+          sourceRows: campusSession.sourceRows,
+          collisionReason: teacherCollision && classCollision
+            ? 'Teacher and class'
+            : teacherCollision ? 'Teacher availability' : 'Raihan class away from campus',
+          localDay: campusSession.day,
+          localDate: campusSession.date,
+          localPeriod: formatPeriod_(campusSession.period),
+          localClass: campusSession.className,
+          localSubject: campusSession.subject,
+        });
+      });
+    });
+  localCampusCollisions.sort(function (a, b) {
+    return a.raihanDate.localeCompare(b.raihanDate) ||
+      a.raihanPeriod.localeCompare(b.raihanPeriod) ||
+      a.teacherName.localeCompare(b.teacherName) ||
+      a.localClass.localeCompare(b.localClass);
+  });
+  const collisionsByTeacher = {};
+  localCampusCollisions.forEach(function (collision) {
+    if (!collisionsByTeacher[collision.teacherId]) collisionsByTeacher[collision.teacherId] = [];
+    collisionsByTeacher[collision.teacherId].push(collision);
   });
   writeWeekOutput_(week.weekNo, sourceHeaders, columns, allocated);
   writeSolverWorking_(week.weekNo, sessions, columns.date, columns.period);
@@ -1111,7 +1160,7 @@ function generateWeekSchedule_(week) {
   lags.forEach(function (lag) { lagBySubject[lag.subject] = (lagBySubject[lag.subject] || 0) + 1; });
   const alteredDates = {};
   sessions.forEach(function (session) {
-    if (session.status !== 'MOVED' && session.status !== 'RAIHAN') return;
+    if (session.status !== 'RAIHAN') return;
     if (session.date !== session.assignedDate || session.period !== session.assignedPeriod) {
       alteredDates[session.date] = true;
       alteredDates[session.assignedDate] = true;
@@ -1130,26 +1179,11 @@ function generateWeekSchedule_(week) {
         classes: Object.keys(teacher.classes).sort(),
         raihanSessions: teacher.raihanSessions,
         raihanDay: teacher.raihanDay,
-        homeCommitmentsOnRaihanDay: teacher.displaced.length,
-        unplacedHomeCommitments: teacher.displaced.filter(function (session) {
-          return session.status === 'LAG';
-        }).length,
+        raihanDays: teacher.raihanDays,
+        homeCommitmentsOnRaihanDay: (collisionsByTeacher[id] || []).length,
+        localCampusCollisionCount: (collisionsByTeacher[id] || []).length,
         homeCommitmentsByDay: teacher.homeByDay,
-        localCampusMoves: teacher.displaced.map(function (session) {
-          return {
-            sourceRows: session.sourceRows,
-            className: session.className,
-            subject: session.subject,
-            sourceDate: session.date,
-            sourceDay: session.day,
-            sourcePeriod: formatPeriod_(session.period),
-            suggestedDate: session.status === 'MOVED' ? session.assignedDate : '',
-            suggestedDay: session.status === 'MOVED' ? rawDateToWeekday_(session.assignedDate) : '',
-            suggestedPeriod: session.status === 'MOVED' ? formatPeriod_(session.assignedPeriod) : '',
-            status: session.status === 'MOVED' ? 'MOVE_SUGGESTED' : 'NO_FREE_SLOT',
-            diagnostic: session.diagnostic || '',
-          };
-        }),
+        localCampusCollisions: collisionsByTeacher[id] || [],
       };
     }),
     sourceRows: sessions.length,
@@ -1168,6 +1202,8 @@ function generateWeekSchedule_(week) {
     lagCount: lags.length,
     lags: lags,
     lagBySubject: lagBySubject,
+    localCampusCollisions: localCampusCollisions,
+    localCampusCollisionCount: localCampusCollisions.length,
   };
 }
 
@@ -1556,9 +1592,15 @@ function getFinalRaihanWeek_(week) {
           teacherName: teacherName,
           date: assignedDate,
           day: rawDateToWeekday_(assignedDate),
+          dates: [],
+          days: [],
           temporary: false,
           subjects: [],
         };
+      }
+      if (assignedDate && teachers[teacherId].dates.indexOf(assignedDate) < 0) {
+        teachers[teacherId].dates.push(assignedDate);
+        teachers[teacherId].days.push(rawDateToWeekday_(assignedDate));
       }
       if (teachers[teacherId].subjects.indexOf(subject) < 0) teachers[teacherId].subjects.push(subject);
     }
@@ -1635,11 +1677,14 @@ function getFinalRaihanWeek_(week) {
       return (teacher.availability[day.day] || []).length > 0;
     });
     if (!availableDays.length) return;
+    const assignedTeacher = teachers[teacher.id];
     teachers[teacher.id] = {
       teacherId: teacher.id,
       teacherName: teacher.name,
-      date: '',
-      day: '',
+      date: assignedTeacher ? assignedTeacher.date : '',
+      day: assignedTeacher ? assignedTeacher.day : '',
+      dates: assignedTeacher ? assignedTeacher.dates : [],
+      days: assignedTeacher ? assignedTeacher.days : [],
       temporary: true,
       availability: teacher.availability,
       availableDays: availableDays,

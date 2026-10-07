@@ -76,15 +76,17 @@ unknown paths to `index.html`.
   key for saved relocation configuration and `Raihan_Week_Logs`.
 - Unique class names come from `JHS_Raw_Data`. Configuration is saved in `Raihan_Weeks`;
   `Raihan_Week_Logs` records setup, analysis, refresh, and proceed actions.
-- **Clean data & build schedule** copies all valid source sessions in the date range into a
+- **Prioritize Raihan & build schedule** copies all valid source sessions in the date range into a
   week-scoped working calculation, collapses repeated class/subject/date/period sessions, and
   detects assistants whose IDs begin `78652` as Musanid records. Those assistants are preserved
   in the teacher field but do not consume a primary-teacher slot.
-- The solver chooses each affected primary teacher's least-committed weekday, moves that
-  teacher's non-relocating sessions from the day to other open class/teacher slots, then
-  consolidates selected-class sessions onto that one Raihan weekday. Subject groups with fewer
-  sessions are attempted first; Raihan placement prefers P2/P4/P6 before other periods and uses
-  P1-P9. Displaced campus sessions may also use P10.
+- The solver allocates selected-class Raihan subjects first, preferring each teacher's weekday
+  with the fewest local-campus commitments. A teacher uses one Raihan day by default; a second
+  weekday is used only when sessions cannot fit on the first day, with a maximum of nine Raihan
+  periods per day and two Raihan days per teacher. Raihan placement prefers P2/P4/P6 before other
+  periods and uses P1-P9. Local-campus sessions are retained at their source date and period;
+  teacher/time overlaps and same-class campus periods that conflict with Raihan attendance are
+  returned as a collision report for manual campus timetable changes.
 - Generated rows are written to `Raihan_Allocations`, which adds `Week_No` before the JHS
   columns. A build replaces only the selected week's rows and preserves other weeks.
   If that tab already has the exact JHS columns without `Week_No`, generation prepends the
@@ -94,14 +96,13 @@ unknown paths to `index.html`.
   manually in `Raihan_Temp_Teachers`; `Availability_JSON` uses weekday keys and `Period N` values,
   for example `{"Monday":["Period 1","Period 4"],"Wednesday":["Period 9"]}`. The app reads these
   profiles and can collision-check compatible assignments.
-- Before final placement, the Allocation page suggests each selected teacher's least-committed
+- Before final allocation, the Allocation page suggests each selected teacher's least-committed
   Raihan day and lets the scheduler change it. Applying the choices stores them in
-  `Raihan_Teacher_Days` and rebuilds the week's schedule. The advisory identifies the exact
-  `JHS_Raw_Data` row(s) for each local-campus lesson that must move, with the solver's proposed
-  destination date and period. Download the move-plan CSV for review and offline coordination.
-  This is a recommendation only: it does not change `JHS_Raw_Data`. Make agreed edits in the
-  local-campus timetable, paste the revised source data into `JHS_Raw_Data`, then refresh the
-  advisory and rebuild.
+  `Raihan_Teacher_Days` and rebuilds the week. The printable collision report and downloadable
+  CSV show both Raihan and local-campus date, period, class, subject, teacher, and source row.
+  Use them to decide which local-campus periods to shuffle after the Raihan timetable is final.
+  The system does not edit `JHS_Raw_Data`; paste the agreed campus timetable changes into that
+  sheet and rebuild to verify the collisions are resolved.
 - **Raihan final timetable** displays all dates in the configured window for one class as a
   class x period crosstab, with teacher or subject filters. Edit/move a placed card directly or
   drag it to a free slot, then select its date, period, eligible regular or temporary teacher,

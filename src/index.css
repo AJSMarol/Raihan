@@ -47,4 +47,42 @@
   body {
     background: white;
   }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-collision-report,
+  .print-collision-report * {
+    visibility: visible;
+  }
+
+  .print-collision-report {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  .print-collision-report table {
+    min-width: 0 !important;
+    font-size: 9pt;
+  }
+
+  .print-collision-report th,
+  .print-collision-report td {
+    border: 1px solid #777;
+    padding: 4px;
+    color: black !important;
+  }
+
+  .print-collision-report tr {
+    break-inside: avoid;
+  }
+
+  .no-print {
+    display: none !important;
+  }
 }

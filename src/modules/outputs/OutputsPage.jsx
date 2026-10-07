@@ -101,7 +101,7 @@ export default function OutputsPage() {
         return periods.some((value) => `Period ${String(value).replace(/^P/i, '').replace(/^Period\s*/i, '')}` === target.period) &&
           (teacher.availableDays || []).some((item) => item.date === target.date);
       }
-      return teacher.date === target.date;
+      return (teacher.dates || [teacher.date]).includes(target.date);
     }).filter((teacher) => !(data.occupied || []).some((slot) =>
       slot.date === target.date &&
       slot.period === `P${target.period.replace('Period ', '')}` &&
@@ -432,7 +432,7 @@ export default function OutputsPage() {
                   <option value="">Choose a teacher</option>
                   {eligibleTeachers(dropTarget, subject).map((teacher) => (
                     <option key={teacher.teacherId} value={teacher.teacherId}>
-                      {teacher.teacherName}{teacher.temporary ? ' · Temporary' : ` · ${teacher.day}`}
+                      {teacher.teacherName}{teacher.temporary ? ' · Temporary' : ` · ${(teacher.days || [teacher.day]).join(' / ')}`}
                     </option>
                   ))}
                 </select>
