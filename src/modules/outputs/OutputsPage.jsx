@@ -5,7 +5,8 @@ import { ApiError, UNKNOWN_ERROR_MESSAGE, apiCall } from '@/services/api';
 import { getActiveAllocationWeek } from '@/modules/allocation/allocationSession';
 
 const WEEK_NUMBERS = Array.from({ length: 41 }, (_, index) => index + 1);
-const PERIODS = Array.from({ length: 9 }, (_, index) => `Period ${index + 1}`);
+// Raihan teaching periods (PT is Khaimat, outside the timetable). The server sends the live list.
+const DEFAULT_RAIHAN_PERIODS = Array.from({ length: 9 }, (_, index) => `Period ${index + 2}`);
 const CAMPUS_PERIODS = Array.from({ length: 10 }, (_, index) => `Period ${index + 1}`);
 
 function displayDate(value) {
@@ -26,6 +27,7 @@ export default function OutputsPage() {
     () => Number(searchParams.get('week')) || getActiveAllocationWeek(),
   );
   const [data, setData] = useState(null);
+  const PERIODS = data?.raihanPeriods?.length ? data.raihanPeriods : DEFAULT_RAIHAN_PERIODS;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [viewBy, setViewBy] = useState('subject');
@@ -123,7 +125,8 @@ export default function OutputsPage() {
     }
     const next = { ...target, rowNumber: item.rowNumber };
     const preferredSubject = item.subject || '';
-    const validSubject = data.raihanSubjects.includes(preferredSubject) ? preferredSubject : data.raihanSubjects[0];
+    // Book-based lessons (e.g. Essay, Academic Writing) keep their own subject.
+    const validSubject = preferredSubject || data.raihanSubjects[0];
     setDragged(item);
     setDropTarget(next);
     setSubject(validSubject);
@@ -237,13 +240,25 @@ export default function OutputsPage() {
         <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Allocation puzzle</p>
         <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink">Raihan final timetable</h1>
         <p className="mt-3 max-w-4xl text-ink-soft">
-          View all weekdays for one class. Click Edit / move on a placed card or choose a pending card’s slot, then select the date, period, subject and an eligible teacher. Drag-and-drop is also available. Only the ten Raihan subjects are placed; other lessons remain visible in the Jamea campus clash report.
+          View all weekdays for one class. Click Edit / move on a placed card or choose a pending card’s slot, then select the date, period, subject and an eligible teacher. Drag-and-drop is also available. Raihan lessons use Period 2–10 (PT is Khaimat). Moves are checked against other Raihan lessons; a teacher’s campus lessons less than {data?.travelGapMinutes ? data.travelGapMinutes / 60 : 2} hours from their Raihan lesson are flagged below as travel warnings.
         </p>
         {data && (
           <p className="mt-2 text-sm text-ink-soft">
             Showing {data.dates.length} date(s) in the saved window, {displayDate(data.startDate)}–{displayDate(data.endDate)}.
             {' '}Use <Link to="/allocation" className="font-medium text-raihan-700 underline">Allocation</Link> to adjust the date range and rebuild if weekdays are missing.
           </p>
+        )}
+        {data?.travelWarnings?.length > 0 && (
+          <div role="status" className="mt-2 rounded-md border border-saffron-500/40 bg-saffron-100 p-3 text-sm text-saffron-800">
+            <p className="font-semibold">{data.travelWarnings.length} travel-gap warning(s)</p>
+            <ul className="mt-1 max-h-40 list-disc overflow-y-auto ps-5">
+              {data.travelWarnings.map((warning, index) => (
+                <li key={`${warning.teacherId}-${warning.date}-${warning.campusPeriod}-${index}`}>
+                  {warning.teacherName}: Raihan {warning.raihanClass} {warning.raihanPeriod} vs campus {warning.campusClass} {warning.campusSubject} {warning.campusPeriod} on {displayDate(warning.date)}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {data && weekdayCount < 5 && (
           <p role="alert" className="mt-2 rounded-md border border-saffron-500/40 bg-saffron-100 p-3 text-sm text-saffron-800">
@@ -422,7 +437,8 @@ export default function OutputsPage() {
                   if (!choices.length) setError('No teacher is free in this slot for that subject. Choose another subject or slot, or add a compatible temporary teacher.');
                   else setError(null);
                 }} className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-3 py-2">
-                  {data.raihanSubjects.map((value) => <option key={value} value={value}>{value}</option>)}
+                  {[...new Set([...(dragged?.subject ? [dragged.subject] : []), ...data.raihanSubjects])]
+                    .map((value) => <option key={value} value={value}>{value}</option>)}
                 </select>
               </label>
               <label className="text-sm font-medium text-ink">
