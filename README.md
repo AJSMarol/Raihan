@@ -15,22 +15,31 @@ The key invariant is: **allocate Raihan first; report local-campus conflicts; ne
 rewrite the source timetable.** `JHS_Raw_Data` is the source of truth. The solver writes
 week-scoped results to `Raihan_Allocations` and diagnostics to `Raihan_Solver_Working`.
 
-1. **Configure a week.** In Allocation, choose the date range and classes attending Raihan.
-   Save the setup before analyzing it.
-2. **Identify Raihan sessions and teachers.** Use only the configured classes and the supported
-   Raihan subject list. Normalize periods (including campus `(PT)` as Period 1), deduplicate
-   repeated class/subject/date/period records, and distinguish primary teachers from Musanids.
-3. **Choose teacher days.** Suggest the weekday with the fewest local-campus commitments. A
-   scheduler may override it. Keep the one-day preference, using a second Raihan day only when
-   required, with at most nine Raihan periods per day and two days per teacher.
-4. **Allocate Raihan before campus moves.** Reserve class and teacher slots for Raihan sessions
-   using P2/P4/P6 preference followed by the remaining Period 1-9 slots. Do not relocate or
-   delete local-campus rows to make this pass succeed.
-5. **Report conflicts for human action.** Compare every placed Raihan session against the source
-   timetable. Report (a) the same teacher booked at the local campus in that date/period and
-   (b) a selected Raihan class still booked locally at that date/period. Include source row,
-   teacher, date, period, class, subject, and collision reason. Make the report printable and
-   downloadable so schedulers can coordinate the local-campus changes.
+1. **Configure a week.** In Allocation, choose the date range, the classes going to Raihan, and
+   whether Raihan is open on Saturday. Save the setup before analyzing it. A selected class is at
+   Raihan for the **whole week**, so its own campus periods that week are free.
+2. **Classify each lesson of a selected class.** Collapse repeated rows, then:
+   - *Held at Raihan*: the Raihan subjects (Adab, Akhbaar, Al-Lisān al-ʿArabī, English, Fiqh,
+     Hikmat, Quran Kareem, Sciences, Takhassus, Tamreen, Tawil) plus the books Academic Writing,
+     Essay, and Emotional Intelligence and Leadership Skills (`RAIHAN_EXTRA_BOOKS_`).
+   - *Khaimat Riyadat*: runs at Raihan outside the timetable (`OUTSIDE_JADWAL`).
+   - *Everything else*: not held that week (`NOT_HELD`, listed for information).
+   One **lead teacher** travels per lesson: the first non-Musanid ID, else the Musanid. Group
+   (Ḥifz) lessons with many teachers send only the lead. Lessons with only a department (no
+   teacher ID) are placed and staffed by the department. Proxy/Farmaan rows already name the
+   substitute and are used as-is.
+3. **Place every Raihan lesson** in Period 2–10 (PT is Khaimat) on the week's Raihan days, with
+   no class or lead teacher double-booked. An optimiser (greedy start + simulated annealing,
+   `solveRaihanPlacement_`) minimises, in order: unplaced lessons; Raihan travel days per teacher
+   (no fixed cap, 9 periods a day); campus lessons less than `TRAVEL_GAP_MINUTES_` (2 hours,
+   using the bell schedule in `PERIOD_TIMES_`) from the teacher's Raihan lessons that day; then a
+   light preference for P2/P4/P6. A day chosen by the scheduler overrides the optimiser.
+4. **Never edit the source.** Campus lessons are kept at their source date and period.
+5. **Report clashes with suggested swaps.** Every campus lesson that breaks the travel gap is
+   listed with a suggestion: swap with another lesson of the same campus class (same day first),
+   move to a free period, or (group lessons) let the other teachers continue. Suggestions are
+   computed in sequence, so applying all of them keeps every class and teacher single-booked.
+   Both reports print and download as CSV.
 6. **Reconcile the source after approval.** Staff decide which local periods to shuffle, update
    `JHS_Raw_Data`, and rebuild. The new analysis should retain all source rows and show whether
    the collisions have cleared.
@@ -52,6 +61,21 @@ row in the configured date window for (1) the selected classes, regardless of su
 and (2) every class taught by those Raihan teachers. Preserve the original sheet unchanged, keep
 all fields on retained rows, and test that both teacher and same-class collision counts match the
 unfiltered solver on representative data before enabling the optimization.
+
+### Checking the solver against real data
+
+`tools/solver-check/` runs `Code.gs` under Node with an in-memory sheet, using a CSV export of
+`JHS_Raw_Data` (don't commit the CSV: it holds names and phone numbers).
+
+```
+node tools/solver-check/validate.cjs apps-script/Code.gs path/to/JHS_Raw_Data.csv
+git show main:apps-script/Code.gs > /tmp/old.gs
+node tools/solver-check/compare.cjs /tmp/old.gs apps-script/Code.gs path/to/JHS_Raw_Data.csv monsat
+```
+
+`validate` sends each grade to Raihan and checks there's no double-booking, the Saturday option,
+manual moves, teacher-day overrides, and that applying every suggested swap clears the clashes.
+`compare` prints unplaced lessons, extra travel days and travel-gap clashes for two versions.
 
 ## 1. Google Cloud: OAuth client
 
@@ -80,7 +104,7 @@ unfiltered solver on representative data before enabling the optimization.
    for schedule analysis. Campus `Period` may be P1-P10, 1-10, or `Period 1`-`Period 10`; `(PT)`
    maps to `Period 1`. Periods in generated schedules and saved availability are stored as
    `Period 1`, `Period 2`, etc. Campus schedules support `Period 1`-`Period 10`; Raihan and
-   temporary-teacher slots use `Period 1`-`Period 9`. `Date` may be a spreadsheet date, ISO
+   temporary-teacher slots use `Period 2`-`Period 10` (PT is not a Raihan teaching period). `Date` may be a spreadsheet date, ISO
    `YYYY-MM-DD`, a Sheets date serial, or a slash/dot-separated date string interpreted using the
    spreadsheet locale.
 3. Extensions > Apps Script. Paste `apps-script/Code.gs`; its `GOOGLE_CLIENT_ID` must match
@@ -121,19 +145,17 @@ unknown paths to `index.html`.
 
 - Choose a week number (1-41), start/end dates, and the affected classes. The week number is the
   key for saved relocation configuration and `Raihan_Week_Logs`.
-- Unique class names come from `JHS_Raw_Data`. Configuration is saved in `Raihan_Weeks`;
+- Unique class names come from `JHS_Raw_Data`. Configuration is saved in `Raihan_Weeks` (an
+  `Include_Saturday` column is added automatically to existing sheets);
   `Raihan_Week_Logs` records setup, analysis, refresh, and proceed actions.
 - **Prioritize Raihan & build schedule** reads valid source sessions in the date range into a
   week-scoped working calculation, collapses repeated class/subject/date/period sessions, and
   detects assistants whose IDs begin `78652` as Musanid records. Those assistants are preserved
   in the teacher field but do not consume a primary-teacher slot.
-- The solver allocates selected-class Raihan subjects first, preferring each teacher's weekday
-  with the fewest local-campus commitments. A teacher uses one Raihan day by default; a second
-  weekday is used only when sessions cannot fit on the first day, with a maximum of nine Raihan
-  periods per day and two Raihan days per teacher. Raihan placement prefers P2/P4/P6 before other
-  periods and uses P1-P9. Local-campus sessions are retained at their source date and period;
-  teacher/time overlaps and same-class campus periods that conflict with Raihan attendance are
-  returned as a collision report for manual campus timetable changes.
+- The builder follows the rules in *Concept and developer workflow* above. Weights, the bell
+  schedule, the travel gap and the extra held books are constants at the top of the solver
+  section in `Code.gs`. If a class needs more Raihan periods than the week has (9 per day), the
+  surplus is reported as lags with that reason; opening Raihan on Saturday adds 9 per class.
 - Generated rows are written to `Raihan_Allocations`, which adds `Week_No` before the JHS
   columns. A build replaces only the selected week's rows and preserves other weeks.
   If that tab already has the exact JHS columns without `Week_No`, generation prepends the
