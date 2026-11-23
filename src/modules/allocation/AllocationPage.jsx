@@ -31,6 +31,68 @@ function weekdaysInRange(startDate, endDate) {
   return WEEKDAYS.filter((day) => days.has(day));
 }
 
+function downloadCsv(headers, rows, filename) {
+  const csv = [headers, ...rows].map((row) => row.map((value) => {
+    const text = String(value ?? '');
+    return `"${text.replace(/"/g, '""')}"`;
+  }).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Shows sheet rows compactly: [5, 6, 7, 9] -> "5–7, 9". */
+function formatRows(rows) {
+  const sorted = [...new Set((rows || []).map(Number))].sort((a, b) => a - b);
+  const parts = [];
+  for (let i = 0; i < sorted.length; i += 1) {
+    let end = i;
+    while (end + 1 < sorted.length && sorted[end + 1] === sorted[end] + 1) end += 1;
+    parts.push(end > i ? `${sorted[i]}–${sorted[end]}` : String(sorted[i]));
+    i = end;
+  }
+  return parts.join(', ');
+}
+
+const SWAP_ACTION_LABELS = {
+  SWAP: 'Swap with another lesson of this class',
+  MOVE_TO_FREE_PERIOD: 'Move to a free period',
+  GROUP_COVER: 'Group lesson continues without this teacher',
+  NEEDS_SUBSTITUTE: 'No swap found: arrange a substitute',
+};
+
+function describeOption(option) {
+  if (!option) return '';
+  const target = `${option.target.day} ${option.target.date} ${option.target.period}`;
+  return option.swapWith
+    ? `→ ${target}, swapping with ${option.swapWith.subject} (${option.swapWith.teachers || 'department'})`
+    : `→ ${target} (free period)`;
+}
+
+function downloadSwapSuggestions(suggestions, weekNo) {
+  downloadCsv(
+    ['Teacher_ID', 'Teacher_Name', 'Raihan_Slot', 'Reason', 'Campus_Class', 'Campus_Subject', 'Campus_Day',
+      'Campus_Date', 'Campus_Period', 'JHS_Raw_Data_Row(s)', 'Suggested_Action', 'Move_To_Date', 'Move_To_Period',
+      'Swap_With_Subject', 'Swap_With_Teachers', 'Swap_With_Row(s)', 'Alternatives'],
+    suggestions.map((item) => {
+      const first = item.options?.[0];
+      return [
+        item.teacherId, item.teacherName, item.raihanSlot, item.reason, item.lesson.className, item.lesson.subject,
+        item.lesson.day, item.lesson.date, item.lesson.period, formatRows(item.lesson.sourceRows),
+        SWAP_ACTION_LABELS[item.action] || item.action, first?.target.date || '', first?.target.period || '',
+        first?.swapWith?.subject || '', first?.swapWith?.teachers || '', formatRows(first?.swapWith?.sourceRows),
+        (item.options || []).slice(1).map(describeOption).join(' | '),
+      ];
+    }),
+    `Raihan_Campus_Swap_Suggestions_Week_${weekNo}.csv`,
+  );
+}
+
 function downloadLocalCampusCollisionReport(collisions, weekNo) {
   const headers = [
     'Teacher_ID', 'Teacher_Name', 'Raihan_Day', 'Raihan_Date', 'Raihan_Period',
@@ -73,6 +135,8 @@ export default function AllocationPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedClasses, setSelectedClasses] = useState([]);
+  const [includeSaturday, setIncludeSaturday] = useState(false);
+  const [printTarget, setPrintTarget] = useState('clashes');
   const [savedSetup, setSavedSetup] = useState(null);
   const [advisory, setAdvisory] = useState(() => getAllocationAdvisory(getActiveAllocationWeek()));
   const [loading, setLoading] = useState(true);
@@ -95,6 +159,7 @@ export default function AllocationPage() {
     setStartDate('');
     setEndDate('');
     setSelectedClasses([]);
+    setIncludeSaturday(false);
     setSavedSetup(null);
     setActiveAllocationWeek(weekNo);
     setAdvisory(getAllocationAdvisory(weekNo));
@@ -110,11 +175,13 @@ export default function AllocationPage() {
           startDate: week?.startDate ?? '',
           endDate: week?.endDate ?? '',
           classes: week?.classes ?? [],
+          includeSaturday: Boolean(week?.includeSaturday),
         };
         setClasses(classesFromSheet);
         setStartDate(selection.startDate);
         setEndDate(selection.endDate);
         setSelectedClasses(selection.classes);
+        setIncludeSaturday(selection.includeSaturday);
         setSavedSetup(week ? selection : null);
       })
       .catch((requestError) => {
@@ -138,8 +205,9 @@ export default function AllocationPage() {
       startDate,
       endDate,
       classes: [...selectedClasses].sort(),
+      includeSaturday,
     }),
-    [weekNo, startDate, endDate, selectedClasses],
+    [weekNo, startDate, endDate, selectedClasses, includeSaturday],
   );
   const savedKey = savedSetup ? JSON.stringify(savedSetup) : null;
   const currentKey = JSON.stringify(currentSetup);
@@ -172,6 +240,7 @@ export default function AllocationPage() {
         startDate: savedWeek.startDate,
         endDate: savedWeek.endDate,
         classes: [...savedWeek.classes].sort(),
+        includeSaturday: Boolean(savedWeek.includeSaturday),
       });
       setNotice(`Week ${weekNo} relocation setup saved.`);
       setAdvisory(null);
@@ -278,9 +347,10 @@ export default function AllocationPage() {
           Raihan relocation
         </h1>
         <p className="mt-3 max-w-3xl text-ink-soft">
-          Set the week, dates, and affected classes. Schedule generation places Raihan subjects
-          first, keeps local-campus lessons unchanged, and reports exact teacher or class/time conflicts
-          for users to resolve in the local-campus timetable after the Raihan schedule is finalized.
+          Set the week, dates, and the classes going to Raihan for the whole week. The builder places
+          every Raihan lesson, keeps each teacher to as few Raihan days as possible, and keeps a
+          two-hour travel gap from their campus lessons. Campus lessons that still break the gap are
+          listed with suggested swaps; JHS_Raw_Data is never edited automatically.
         </p>
       </header>
 
@@ -354,6 +424,26 @@ export default function AllocationPage() {
           </label>
         </div>
 
+        <label className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-ink">
+          <input
+            type="checkbox"
+            checked={includeSaturday}
+            onChange={(event) => {
+              setIncludeSaturday(event.target.checked);
+              setAdvisory(null);
+              clearAllocationAdvisory(weekNo);
+              setAdvanced(false);
+              setNotice(null);
+            }}
+            disabled={loading || saving || analyzing || recording}
+            className="h-4 w-4 rounded border-ink/30 text-raihan-700 focus:ring-raihan-500"
+          />
+          Raihan is open on Saturday this week
+        </label>
+        <p className="mt-1 text-xs text-ink-soft">
+          Off: Raihan lessons use Monday–Friday only. Each class has 9 Raihan periods a day (Period 2–10).
+        </p>
+
         <fieldset className="mt-7">
           <legend className="text-sm font-medium text-ink">Classes going to Raihan</legend>
           <p className="mt-1 text-sm text-ink-soft">Select one or more classes from JHS_Raw_Data.</p>
@@ -424,18 +514,39 @@ export default function AllocationPage() {
           <div className="mb-5">
             <p className="text-sm font-semibold uppercase tracking-wider text-raihan-700">Week {advisory.weekNo}</p>
             <h2 id="advisory-title" className="mt-1 text-xl font-semibold text-ink">Raihan-first schedule and campus collision report</h2>
-            <p className="mt-2 text-sm text-ink-soft">
-              Source rows with valid dates: {advisory.validDateRows ?? '—'}; rows in the selected
-              window ({advisory.startDate} to {advisory.endDate}): {advisory.rowsInDateRange ?? '—'}.
-              {' '}Sanitized {advisory.sourceRows} unique schedule sessions
-              {advisory.duplicateRowsSkipped > 0
-                ? ` (${advisory.duplicateRowsSkipped} repeated sessions removed).`
-                : '.'}
-              {' '}{advisory.allocatedRows} rows were written to Raihan_Allocations. Raihan slots
-              were assigned first; local-campus rows remain at their source date and period.
-              {` ${advisory.localCampusCollisionCount || 0} local-campus collision(s) need review.`}
-              {' '}Per-week calculations and lag diagnostics are in Raihan_Solver_Working.
+            <dl className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {[
+                ['Raihan lessons placed', advisory.raihanPlaced ?? '—'],
+                ['Still unplaced', advisory.lagCount ?? 0],
+                ['Lead teachers', advisory.teachers?.length ?? 0],
+                ['Teacher travel days', advisory.teacherDayCount ?? '—'],
+                ['Travel-gap clashes', advisory.localCampusCollisionCount ?? 0],
+                ['Not held this week', advisory.notHeldCount ?? 0],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-md bg-paper p-3">
+                  <dt className="text-xs text-ink-soft">{label}</dt>
+                  <dd className="text-xl font-semibold text-ink">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 text-sm text-ink-soft">
+              {advisory.rowsInDateRange ?? '—'} JHS_Raw_Data rows in {advisory.startDate} to {advisory.endDate}
+              {' '}collapsed to {advisory.sourceRows} lessons ({advisory.duplicateRowsSkipped || 0} repeated rows merged).
+              {' '}Raihan days: {(advisory.raihanDates || []).map((item) => item.day.slice(0, 3)).join(', ') || '—'}
+              {' '}· periods {advisory.raihanPeriods?.[0] ?? 'Period 2'}–{advisory.raihanPeriods?.[advisory.raihanPeriods.length - 1] ?? 'Period 10'}.
+              {advisory.departmentStaffed > 0 && ` ${advisory.departmentStaffed} placed lesson(s) have no named teacher and are staffed by their department.`}
+              {' '}{advisory.allocatedRows} rows written to Raihan_Allocations; details in Raihan_Solver_Working.
             </p>
+            {advisory.capacityPerClass > 0 && Object.entries(advisory.demandByClass || {})
+              .some(([, count]) => count > advisory.capacityPerClass) && (
+              <p role="alert" className="mt-3 rounded-md border border-saffron-500/40 bg-saffron-100 p-3 text-sm text-saffron-800">
+                Not enough Raihan periods this week: each class has {advisory.capacityPerClass} slots, but{' '}
+                {Object.entries(advisory.demandByClass)
+                  .filter(([, count]) => count > advisory.capacityPerClass)
+                  .map(([className, count]) => `${className} needs ${count}`).join(', ')}.
+                {!advisory.includeSaturday && ' Opening Raihan on Saturday adds 9 periods per class.'}
+              </p>
+            )}
             {advisory.skippedRows &&
               Object.values(advisory.skippedRows).reduce((sum, count) => sum + count, 0) > 0 && (
                 <p role="status" className="mt-3 rounded-md bg-saffron-100 p-3 text-sm text-saffron-700">
@@ -512,7 +623,7 @@ export default function AllocationPage() {
               <section className="rounded-lg border border-raihan-500/30 bg-raihan-50 p-4">
                 <h3 className="font-semibold text-ink">Confirm each teacher’s Raihan day</h3>
                 <p className="mt-1 text-sm text-ink-soft">
-                  The first choice prefers a day with fewer local-campus periods. Raihan sessions are placed first; local-campus lessons stay at their source times and any exact teacher/time collisions are reported below for manual campus timetable updates. The system uses a second Raihan day only if needed, up to nine periods per day.
+                  The builder gives each teacher as few Raihan days as possible (up to nine periods a day) and prefers days with fewer campus lessons. Choosing a day here overrides the builder for that teacher.
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   {advisory.teachers.map((teacher) => (
@@ -527,7 +638,8 @@ export default function AllocationPage() {
                         disabled={savingTeacherDays || analyzing}
                         className="mt-1 block w-full rounded-md border border-ink/20 bg-white px-2 py-2"
                       >
-                        {weekdaysInRange(advisory.startDate, advisory.endDate).map((day) => (
+                        {(advisory.raihanDates?.map((item) => item.day) ||
+                          weekdaysInRange(advisory.startDate, advisory.endDate)).map((day) => (
                           <option key={day} value={day}>
                             {day} · {teacher.homeCommitmentsByDay?.[day] || 0} local-campus period(s)
                             {day === teacher.raihanDay ? ' · suggested' : ''}
@@ -574,19 +686,22 @@ export default function AllocationPage() {
           )}
 
           {advisory.teachers.length > 0 && (
-            <section className="print-collision-report mt-6 rounded-lg border border-saffron-500/30 bg-saffron-50 p-4">
+            <section className={`${printTarget === 'clashes' ? 'print-collision-report ' : ''}mt-6 rounded-lg border border-saffron-500/30 bg-saffron-50 p-4`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-semibold text-ink">Local-campus collisions after Raihan allocation</h3>
+                  <h3 className="text-lg font-semibold text-ink">Campus lessons that break the travel gap</h3>
                   <p className="mt-1 text-sm text-ink-soft">
-                    Week {advisory.weekNo} · {advisory.startDate} to {advisory.endDate} · {advisory.localCampusCollisionCount || 0} period(s) need campus timetable review.
-                    Raihan has priority; rows identify a teacher overlap, a Raihan class still scheduled at campus, or both. Use these details to decide which local-campus lesson to move after the Raihan timetable is finalized.
+                    Week {advisory.weekNo} · {advisory.startDate} to {advisory.endDate} · {advisory.localCampusCollisionCount || 0} campus lesson(s).
+                    A teacher needs at least {(advisory.travelGapMinutes || 120) / 60} hours between a campus lesson and a Raihan lesson on the same day. Classes at Raihan are away all week, so their own campus periods are free and are not listed.
                   </p>
                 </div>
                 <div className="no-print flex gap-2">
                   <button
                     type="button"
-                    onClick={() => window.print()}
+                    onClick={() => {
+                      setPrintTarget('clashes');
+                      setTimeout(() => window.print(), 0);
+                    }}
                     disabled={!advisory.localCampusCollisions?.length}
                     className="inline-flex items-center gap-2 rounded-md border border-ink/20 bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-paper disabled:opacity-50"
                   >
@@ -606,7 +721,7 @@ export default function AllocationPage() {
               </div>
               {!advisory.localCampusCollisions?.length ? (
                 <p className="mt-4 rounded-md bg-white p-3 text-sm text-ink-soft">
-                  No teacher/time collisions were found between the Raihan sessions and local-campus lessons.
+                  Every teacher keeps the travel gap between campus and Raihan.
                 </p>
               ) : (
                 <div className="mt-4 overflow-x-auto rounded-md border border-ink/10 bg-white">
@@ -624,7 +739,7 @@ export default function AllocationPage() {
                           <td className="p-2">{collision.teacherName} ({collision.teacherId})</td>
                           <td className="p-2">{collision.raihanDay} · {collision.raihanDate} · {collision.raihanPeriod}</td>
                           <td className="p-2">{collision.raihanClass} · {collision.raihanSubject}</td>
-                          <td className="p-2">{(collision.sourceRows || []).map((row) => `Row ${row}`).join(', ')}</td>
+                          <td className="p-2">{formatRows(collision.sourceRows)}</td>
                           <td className="p-2">{collision.collisionReason}</td>
                           <td className="p-2">{collision.localClass} · {collision.localSubject}</td>
                           <td className="p-2">{collision.localDay} · {collision.localDate} · {collision.localPeriod}</td>
@@ -635,6 +750,98 @@ export default function AllocationPage() {
                 </div>
               )}
             </section>
+          )}
+
+          {advisory.campusSwapSuggestions?.length > 0 && (
+            <section className={`${printTarget === 'swaps' ? 'print-collision-report ' : ''}mt-6 rounded-lg border border-lapis-400/40 bg-white p-4`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-ink">Suggested campus swaps</h3>
+                  <p className="mt-1 max-w-3xl text-sm text-ink-soft">
+                    One suggestion per clashing campus lesson. Suggestions fit together: applying all
+                    of them in JHS_Raw_Data keeps every class and teacher single-booked and clears the
+                    clashes they address. Approve them, update JHS_Raw_Data, then rebuild to confirm.
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-ink">
+                    {Object.entries(advisory.campusSwapSuggestions.reduce((counts, item) => ({
+                      ...counts, [item.action]: (counts[item.action] || 0) + 1,
+                    }), {})).map(([action, count]) => `${count} × ${SWAP_ACTION_LABELS[action] || action}`).join(' · ')}
+                  </p>
+                </div>
+                <div className="no-print flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPrintTarget('swaps');
+                      setTimeout(() => window.print(), 0);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-md border border-ink/20 bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-paper"
+                  >
+                    <Printer className="h-4 w-4" aria-hidden="true" />
+                    Print
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadSwapSuggestions(advisory.campusSwapSuggestions, weekNo)}
+                    className="inline-flex items-center gap-2 rounded-md border border-ink/20 bg-white px-3 py-2 text-sm font-medium text-ink hover:bg-paper"
+                  >
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                    Download CSV
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 overflow-x-auto rounded-md border border-ink/10">
+                <table className="w-full min-w-[1000px] border-collapse text-sm">
+                  <thead className="bg-paper">
+                    <tr>
+                      {['Teacher', 'Raihan slot', 'Campus lesson to change', 'JHS row(s)', 'Suggestion', 'Alternatives'].map((heading) => (
+                        <th key={heading} className="p-2 text-start font-medium">{heading}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {advisory.campusSwapSuggestions.map((item, index) => (
+                      <tr key={`${item.teacherId}-${item.lesson.date}-${item.lesson.period}-${index}`} className="border-t border-ink/10 align-top">
+                        <td className="p-2">{item.teacherName} ({item.teacherId})</td>
+                        <td className="p-2">{item.raihanSlot}<span className="block text-xs text-ink-soft">{item.reason}</span></td>
+                        <td className="p-2">{item.lesson.className} · {item.lesson.subject}<span className="block text-xs text-ink-soft">{item.lesson.day} {item.lesson.date} {item.lesson.period}</span></td>
+                        <td className="p-2">{formatRows(item.lesson.sourceRows)}</td>
+                        <td className="p-2">
+                          <span className="font-medium">{SWAP_ACTION_LABELS[item.action] || item.action}</span>
+                          <span className="block text-xs text-ink-soft">{item.note || describeOption(item.options?.[0])}</span>
+                          {item.options?.[0]?.swapWith && (
+                            <span className="block text-xs text-ink-soft">Partner row(s): {formatRows(item.options[0].swapWith.sourceRows)}</span>
+                          )}
+                        </td>
+                        <td className="p-2 text-xs text-ink-soft">
+                          {(item.options || []).slice(1).map((option, optionIndex) => (
+                            <span key={optionIndex} className="block">{describeOption(option)}</span>
+                          ))}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {advisory.notHeld?.length > 0 && (
+            <details className="mt-6 rounded-lg border border-ink/10 bg-paper p-4 text-sm">
+              <summary className="cursor-pointer font-medium text-ink">
+                {advisory.notHeldCount} lesson(s) of Raihan classes are not held this week
+              </summary>
+              <p className="mt-2 text-ink-soft">
+                These books are not taught at Raihan. Khaimat Riyadat runs at Raihan outside the timetable and is not listed.
+              </p>
+              <ul className="mt-2 grid gap-1 sm:grid-cols-2">
+                {advisory.notHeld.map((item, index) => (
+                  <li key={`${item.className}-${item.date}-${item.period}-${index}`}>
+                    {item.className} · {item.subject}{item.book ? ` (${item.book})` : ''} · {item.date} {item.period}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
 
           {advisory.lags?.length > 0 && (
@@ -656,16 +863,24 @@ export default function AllocationPage() {
               <ul className="mt-3 space-y-1 text-sm text-ink">
                 {advisory.lags.map((lag, index) => (
                   <li key={`${lag.className}-${lag.subject}-${lag.date}-${index}`}>
-                    {lag.className} · {lag.subject} · {lag.date} {lag.period} · {lag.diagnostic}
+                    {lag.className} · {lag.subject} · {lag.teacherName || 'no teacher'} · source {lag.date} {lag.period} · {lag.diagnostic}
                   </li>
                 ))}
               </ul>
-              <Link
-                to={`/temp-teachers?week=${advisory.weekNo}`}
-                className="mt-4 inline-flex rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500"
-              >
-                Enter temporary teachers and resolve lags
-              </Link>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  to={`/lag?week=${advisory.weekNo}`}
+                  className="inline-flex rounded-md bg-raihan-700 px-4 py-2 text-sm font-medium text-white hover:bg-raihan-500"
+                >
+                  Open lag dashboard
+                </Link>
+                <Link
+                  to={`/temp-teachers?week=${advisory.weekNo}`}
+                  className="inline-flex rounded-md border border-raihan-700 px-4 py-2 text-sm font-medium text-raihan-700 hover:bg-raihan-100"
+                >
+                  Enter temporary teachers
+                </Link>
+              </div>
             </section>
           )}
 

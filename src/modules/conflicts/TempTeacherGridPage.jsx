@@ -84,12 +84,12 @@ export default function TempTeacherGridPage() {
         <h2 className="text-lg font-semibold text-ink">Manual sheet entry</h2>
         <p className="mt-2 text-sm text-ink-soft">
           Use one row per temporary teacher. Enter valid JSON in <code>Subjects_JSON</code> and
-          <code> Availability_JSON</code>. Periods must be written as <code>Period 1</code> through
-          <code> Period 9</code>; omit days when the teacher is unavailable.
+          <code> Availability_JSON</code>. Periods must be written as <code>Period 2</code> through
+          <code> Period 10</code> (PT is not a Raihan teaching period); omit days when the teacher is unavailable.
         </p>
         <div className="mt-4 overflow-x-auto rounded-md bg-lapis-900 p-4 text-sm text-white">
           <p className="mb-2 font-medium">Availability_JSON example</p>
-          <pre className="whitespace-pre-wrap break-all">{'{"Monday":["Period 1","Period 4"],"Wednesday":["Period 9"]}'}</pre>
+          <pre className="whitespace-pre-wrap break-all">{'{"Monday":["Period 2","Period 4"],"Wednesday":["Period 9"]}'}</pre>
         </div>
         <p className="mt-3 text-sm text-ink-soft">
           Example <code>Subjects_JSON</code>: <code>["Quran Kareem","Fiqh"]</code>. The sheet
